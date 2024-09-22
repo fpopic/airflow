@@ -242,6 +242,7 @@ class TestVaultClient:
             gcp_key_path="path.json",
             gcp_scopes="scope1,scope2",
             url="http://localhost:8180",
+            role_id="TODO",
             session=None,
         )
         client = vault_client.client
@@ -251,6 +252,19 @@ class TestVaultClient:
             key_path="path.json", keyfile_dict=None, scopes=["scope1", "scope2"]
         )
         mock_hvac.Client.assert_called_with(url="http://localhost:8180", session=None)
+
+        import time_machine
+        with time_machine.travel("2010-01-14 01:02:03"):
+            payload = {
+                'iat': 1263427323,
+                'exp': 1263427323 + 900,
+                'sub': credentials,
+                'aud': f'vault/{self.role_id}'
+            }
+        body = {'payload': json.dumps(payload)}
+        name = f'projects/{project_id}/serviceAccounts/{service_account}'
+
+
         client.auth.gcp.login.assert_called_with(
             role="TODO",
             jwt="TODO",
