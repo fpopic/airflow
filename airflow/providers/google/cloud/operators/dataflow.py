@@ -66,7 +66,8 @@ class CheckJobRunning(Enum):
     FinishIfRunning = 2
     WaitForRun = 3
 
-
+# 0.0.0.0 (gets out well, just creates object)
+# 0.0.1.0 (gets out well, just creates object)
 class DataflowConfiguration:
     """
     Dataflow configuration for BeamRunJavaPipelineOperator and BeamRunPythonPipelineOperator.
@@ -173,6 +174,7 @@ class DataflowConfiguration:
         self.multiple_jobs = multiple_jobs
         self.check_if_running = check_if_running
         self.service_account = service_account
+        # just creates object
 
 
 # TODO: Remove one day

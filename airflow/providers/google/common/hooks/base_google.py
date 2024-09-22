@@ -290,6 +290,7 @@ class GoogleBaseHook(BaseHook):
         self._cached_credentials: Credentials | None = None
         self._cached_project_id: str | None = None
 
+    # last one
     def get_credentials_and_project_id(self) -> tuple[Credentials, str | None]:
         """Return the Credentials object for Google API and the associated project_id."""
         if self._cached_credentials is not None:
@@ -332,6 +333,7 @@ class GoogleBaseHook(BaseHook):
             except json.decoder.JSONDecodeError:
                 raise AirflowException("Invalid JSON.")
 
+        # last one
         credentials, project_id = get_credentials_and_project_id(
             key_path=key_path,
             keyfile_dict=keyfile_dict_json,
@@ -614,6 +616,7 @@ class GoogleBaseHook(BaseHook):
             # We will use the default service account credentials.
             yield None
 
+    # 0.0.1.0 (gets out of it well)
     @contextmanager
     def provide_authorized_gcloud(self) -> Generator[None, None, None]:
         """
@@ -624,6 +627,7 @@ class GoogleBaseHook(BaseHook):
         In our case, we want all commands to use only the credentials from ADCm so
         we need to configure the credentials in gcloud manually.
         """
+        # 0.0.1.1 (gets out of it well)
         credentials_path = _cloud_sdk.get_application_default_credentials_path()
         project_id = self.project_id
 
@@ -706,7 +710,7 @@ class GoogleBaseHook(BaseHook):
 
         return status, message
 
-
+# last one
 class _CredentialsToken(Token):
     """
     A token implementation which makes Google credentials objects accessible to [gcloud-aio](https://talkiq.github.io/gcloud-aio/) clients.
@@ -736,6 +740,7 @@ class _CredentialsToken(Token):
         *,
         session: ClientSession | None = None,
     ) -> _CredentialsToken:
+        # # last one
         credentials, project = hook.get_credentials_and_project_id()
         return cls(
             credentials=credentials,
@@ -782,7 +787,7 @@ class _CredentialsToken(Token):
         # https://github.com/talkiq/gcloud-aio/blob/f1132b005ba35d8059229a9ca88b90f31f77456d/auth/gcloud/aio/auth/token.py#L204
         return datetime.datetime.now(tz=datetime.timezone.utc).replace(tzinfo=None)
 
-
+# last one
 class GoogleBaseAsyncHook(BaseHook):
     """GoogleBaseAsyncHook inherits from BaseHook class, run on the trigger worker."""
 
@@ -802,6 +807,7 @@ class GoogleBaseAsyncHook(BaseHook):
             self._sync_hook = await sync_to_async(self.sync_hook_class)(**self._hook_kwargs)
         return self._sync_hook
 
+    # last one
     async def get_token(self, *, session: ClientSession | None = None) -> _CredentialsToken:
         """Return a Token instance for use in [gcloud-aio](https://talkiq.github.io/gcloud-aio/) clients."""
         sync_hook = await self.get_sync_hook()
