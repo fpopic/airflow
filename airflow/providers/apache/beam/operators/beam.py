@@ -139,7 +139,7 @@ class BeamDataflowMixin(metaclass=ABCMeta):
 
         return check_dataflow_job_status
 
-
+# 0.0.0
 class BeamBasePipelineOperator(BaseOperator, BeamDataflowMixin, ABC):
     """
     Abstract base class for Beam Pipeline Operators.
@@ -189,10 +189,13 @@ class BeamBasePipelineOperator(BaseOperator, BeamDataflowMixin, ABC):
         self.dataflow_hook: DataflowHook | None = None
         self.dataflow_job_id: str | None = None
 
+    # 0.0.0.0 (gets out of it well)
     def _cast_dataflow_config(self):
         if isinstance(self.dataflow_config, dict):
+            # 0.0.0.1 (gets out of it well)
             self.dataflow_config = DataflowConfiguration(**self.dataflow_config)
         else:
+            # 0.0.0.2 (gets out of it well)
             self.dataflow_config = self.dataflow_config or DataflowConfiguration()
 
         if not self.dataflow_config.job_name:
@@ -264,7 +267,7 @@ class BeamBasePipelineOperator(BaseOperator, BeamDataflowMixin, ABC):
         )
         return {"dataflow_job_id": self.dataflow_job_id}
 
-
+# 0.
 class BeamRunPythonPipelineOperator(BeamBasePipelineOperator):
     """
     Launch Apache Beam pipelines written in Python.
@@ -312,6 +315,7 @@ class BeamRunPythonPipelineOperator(BeamBasePipelineOperator):
     template_fields_renderers = {"dataflow_config": "json", "pipeline_options": "json"}
     operator_extra_links = (DataflowJobLink(),)
 
+    # 0.0
     def __init__(
         self,
         *,
@@ -346,6 +350,7 @@ class BeamRunPythonPipelineOperator(BeamBasePipelineOperator):
 
     def execute(self, context: Context):
         """Execute the Apache Beam Python Pipeline."""
+        # 0.0.0 (gets out of it well)
         self._cast_dataflow_config()
         self.pipeline_options.setdefault("labels", {}).update(
             {"airflow-version": "v" + version.replace(".", "-").replace("+", "-")}
@@ -380,6 +385,7 @@ class BeamRunPythonPipelineOperator(BeamBasePipelineOperator):
                 self.snake_case_pipeline_options["requirements_file"] = tmp_req_file.name
 
             if self.is_dataflow and self.dataflow_hook:
+                # 0.0.1 (gets out of it well)
                 with self.dataflow_hook.provide_authorized_gcloud():
                     self.beam_hook.start_python_pipeline(
                         variables=self.snake_case_pipeline_options,

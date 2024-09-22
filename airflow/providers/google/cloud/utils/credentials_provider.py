@@ -241,6 +241,7 @@ class _CredentialProvider(LoggingMixin):
         self.client_secret = client_secret
         self.idp_extra_params_dict = idp_extra_params_dict
 
+    # last one
     def get_credentials_and_project(self) -> tuple[Credentials, str]:
         """
         Get current credentials and project ID.
@@ -266,6 +267,7 @@ class _CredentialProvider(LoggingMixin):
             elif self.credential_config_file:
                 credentials, project_id = self._get_credentials_using_credential_config_file()
             else:
+                # last one
                 credentials, project_id = self._get_credentials_using_adc()
             if self.delegate_to:
                 if hasattr(credentials, "with_subject"):
@@ -390,10 +392,12 @@ class _CredentialProvider(LoggingMixin):
         credentials, project_id = google.auth.load_credentials_from_dict(info=info, scopes=self.scopes)
         return credentials, project_id
 
+    # last one
     def _get_credentials_using_adc(self) -> tuple[Credentials, str]:
         self._log_info(
             "Getting connection using `google.auth.default()` since no explicit credentials are provided."
         )
+        # last one
         credentials, project_id = google.auth.default(scopes=self.scopes)
         return credentials, project_id
 
@@ -405,9 +409,10 @@ class _CredentialProvider(LoggingMixin):
         if not self.disable_logging:
             self.log.debug(*args, **kwargs)
 
-
+# last one
 def get_credentials_and_project_id(*args, **kwargs) -> tuple[Credentials, str]:
     """Return the Credentials object for Google API and the associated project_id."""
+    # last one
     return _CredentialProvider(*args, **kwargs).get_credentials_and_project()
 
 
