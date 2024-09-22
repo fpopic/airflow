@@ -30,15 +30,19 @@ from airflow.api_connexion.exceptions import AlreadyExists, BadRequest, NotFound
 from airflow.api_connexion.parameters import apply_sorting, check_limit, format_parameters
 from airflow.api_connexion.schemas.dag_schema import (
     DAGCollection,
-    dag_detail_schema,
+    DAGCollectionSchema,
+    DAGDetailSchema,
+    DAGSchema,
     dag_schema,
     dags_collection_schema,
 )
 from airflow.exceptions import AirflowException, DagNotFound
 from airflow.models.dag import DagModel, DagTag
 from airflow.utils.airflow_flask_app import get_airflow_app
+from airflow.utils.api_migration import mark_fastapi_migration_done
 from airflow.utils.db import get_query_count
 from airflow.utils.session import NEW_SESSION, provide_session
+from airflow.www.decorators import action_logging
 from airflow.www.extensions.init_auth_manager import get_auth_manager
 
 if TYPE_CHECKING:
@@ -50,19 +54,27 @@ if TYPE_CHECKING:
 
 @security.requires_access_dag("GET")
 @provide_session
-def get_dag(*, dag_id: str, session: Session = NEW_SESSION) -> APIResponse:
+def get_dag(
+    *, dag_id: str, fields: Collection[str] | None = None, session: Session = NEW_SESSION
+) -> APIResponse:
     """Get basic information about a DAG."""
     dag = session.scalar(select(DagModel).where(DagModel.dag_id == dag_id))
-
     if dag is None:
         raise NotFound("DAG not found", detail=f"The DAG with dag_id: {dag_id} was not found")
-
-    return dag_schema.dump(dag)
+    try:
+        dag_schema = DAGSchema(only=fields) if fields else DAGSchema()
+    except ValueError as e:
+        raise BadRequest("DAGSchema init error", detail=str(e))
+    return dag_schema.dump(
+        dag,
+    )
 
 
 @security.requires_access_dag("GET")
 @provide_session
-def get_dag_details(*, dag_id: str, session: Session = NEW_SESSION) -> APIResponse:
+def get_dag_details(
+    *, dag_id: str, fields: Collection[str] | None = None, session: Session = NEW_SESSION
+) -> APIResponse:
     """Get details of DAG."""
     dag: DAG = get_airflow_app().dag_bag.get_dag(dag_id)
     if not dag:
@@ -71,10 +83,14 @@ def get_dag_details(*, dag_id: str, session: Session = NEW_SESSION) -> APIRespon
     for key, value in dag.__dict__.items():
         if not key.startswith("_") and not hasattr(dag_model, key):
             setattr(dag_model, key, value)
-
+    try:
+        dag_detail_schema = DAGDetailSchema(only=fields) if fields else DAGDetailSchema()
+    except ValueError as e:
+        raise BadRequest("DAGDetailSchema init error", detail=str(e))
     return dag_detail_schema.dump(dag_model)
 
 
+@mark_fastapi_migration_done
 @security.requires_access_dag("GET")
 @format_parameters({"limit": check_limit})
 @provide_session
@@ -87,11 +103,12 @@ def get_dags(
     only_active: bool = True,
     paused: bool | None = None,
     order_by: str = "dag_id",
+    fields: Collection[str] | None = None,
     session: Session = NEW_SESSION,
 ) -> APIResponse:
     """Get all DAGs."""
     allowed_attrs = ["dag_id"]
-    dags_query = select(DagModel).where(~DagModel.is_subdag)
+    dags_query = select(DagModel)
     if only_active:
         dags_query = dags_query.where(DagModel.is_active)
     if paused is not None:
@@ -113,10 +130,19 @@ def get_dags(
     dags_query = apply_sorting(dags_query, order_by, {}, allowed_attrs)
     dags = session.scalars(dags_query.offset(offset).limit(limit)).all()
 
-    return dags_collection_schema.dump(DAGCollection(dags=dags, total_entries=total_entries))
+    try:
+        dags_collection_schema = (
+            DAGCollectionSchema(only=[f"dags.{field}" for field in fields])
+            if fields
+            else DAGCollectionSchema()
+        )
+        return dags_collection_schema.dump(DAGCollection(dags=dags, total_entries=total_entries))
+    except ValueError as e:
+        raise BadRequest("DAGCollectionSchema error", detail=str(e))
 
 
 @security.requires_access_dag("PUT")
+@action_logging
 @provide_session
 def patch_dag(*, dag_id: str, update_mask: UpdateMask = None, session: Session = NEW_SESSION) -> APIResponse:
     """Update the specific DAG."""
@@ -140,6 +166,7 @@ def patch_dag(*, dag_id: str, update_mask: UpdateMask = None, session: Session =
 
 @security.requires_access_dag("PUT")
 @format_parameters({"limit": check_limit})
+@action_logging
 @provide_session
 def patch_dags(limit, session, offset=0, only_active=True, tags=None, dag_id_pattern=None, update_mask=None):
     """Patch multiple DAGs."""
@@ -154,10 +181,9 @@ def patch_dags(limit, session, offset=0, only_active=True, tags=None, dag_id_pat
         update_mask = update_mask[0]
         patch_body_[update_mask] = patch_body[update_mask]
         patch_body = patch_body_
+    dags_query = select(DagModel)
     if only_active:
-        dags_query = select(DagModel).where(~DagModel.is_subdag, DagModel.is_active)
-    else:
-        dags_query = select(DagModel).where(~DagModel.is_subdag)
+        dags_query = dags_query.where(DagModel.is_active)
 
     if dag_id_pattern == "~":
         dag_id_pattern = "%"
@@ -187,6 +213,7 @@ def patch_dags(limit, session, offset=0, only_active=True, tags=None, dag_id_pat
 
 
 @security.requires_access_dag("DELETE")
+@action_logging
 @provide_session
 def delete_dag(dag_id: str, session: Session = NEW_SESSION) -> APIResponse:
     """Delete the specific DAG."""

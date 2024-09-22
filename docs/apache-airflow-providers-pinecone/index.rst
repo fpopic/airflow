@@ -41,14 +41,6 @@
 .. toctree::
     :hidden:
     :maxdepth: 1
-    :caption: Commits
-
-    Detailed list of commits <commits>
-
-
-.. toctree::
-    :hidden:
-    :maxdepth: 1
     :caption: Resources
 
     Python API <_api/airflow/providers/pinecone/index>
@@ -62,41 +54,6 @@
 
     System Tests <_api/tests/system/providers/pinecone/index>
 
-Package apache-airflow-providers-pinecone
------------------------------------------
-
-`Pinecone <https://docs.pinecone.io/>`__
-
-
-Release: 1.0.0
-
-Provider package
-----------------
-
-This is a provider package for ``pinecone`` APIs. All classes for this provider package
-are in ``airflow.providers.pinecone`` python module.
-
-Installation
-------------
-
-You can install this package on top of an existing Airflow 2 installation (see ``Requirements`` below)
-for the minimum Airflow version supported) via
-``pip install apache-airflow-providers-pinecone``
-
-
-
-Requirements
-------------
-
-The minimum Apache Airflow version supported by this provider package is ``2.5.0``.
-
-===================  ==================
-PIP package          Version required
-===================  ==================
-``apache-airflow``    ``>=2.5.0``
-``pinecone-client``  ``>=2.2.4``
-===================  ==================
-
 .. THE REMAINDER OF THE FILE IS AUTOMATICALLY GENERATED. IT WILL BE OVERWRITTEN AT RELEASE TIME!
 
 
@@ -108,35 +65,35 @@ PIP package          Version required
     Detailed list of commits <commits>
 
 
-Package apache-airflow-providers-pinecone
+apache-airflow-providers-pinecone package
 ------------------------------------------------------
 
 `Pinecone <https://docs.pinecone.io/docs/overview>`__
 
 
-Release: 1.0.0
+Release: 2.1.0
 
 Provider package
 ----------------
 
-This is a provider package for ``pinecone`` provider. All classes for this provider package
-are in ``airflow.providers.pinecone`` python package.
+This package is for the ``pinecone`` provider.
+All classes for this package are included in the ``airflow.providers.pinecone`` python package.
 
 Installation
 ------------
 
-You can install this package on top of an existing Airflow 2 installation (see ``Requirements`` below)
-for the minimum Airflow version supported) via
-``pip install apache-airflow-providers-pinecone``
+You can install this package on top of an existing Airflow 2 installation via
+``pip install apache-airflow-providers-pinecone``.
+For the minimum Airflow version supported, see ``Requirements`` below.
 
 Requirements
 ------------
 
-The minimum Apache Airflow version supported by this provider package is ``2.5.0``.
+The minimum Apache Airflow version supported by this provider package is ``2.8.0``.
 
 ===================  ==================
 PIP package          Version required
 ===================  ==================
-``apache-airflow``   ``>=2.5.0``
-``pinecone-client``  ``>=2.2.4``
+``apache-airflow``   ``>=2.8.0``
+``pinecone-client``  ``>=3.1.0``
 ===================  ==================

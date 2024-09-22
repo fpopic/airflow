@@ -16,33 +16,42 @@
 # specific language governing permissions and limitations
 # under the License.
 """This module contains Google Analytics 360 operators."""
+
 from __future__ import annotations
 
 import csv
 from tempfile import NamedTemporaryFile
 from typing import TYPE_CHECKING, Any, Sequence
 
+from airflow.exceptions import AirflowProviderDeprecationWarning
 from airflow.models import BaseOperator
 from airflow.providers.google.cloud.hooks.gcs import GCSHook
+from airflow.providers.google.common.deprecated import deprecated
 from airflow.providers.google.marketing_platform.hooks.analytics import GoogleAnalyticsHook
 
 if TYPE_CHECKING:
     from airflow.utils.context import Context
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="GoogleAnalyticsAdminListAccountsOperator",
+    reason="The Google Analytics API v3 has sunset and is no longer available as of July 1, 2024.",
+    category=AirflowProviderDeprecationWarning,
+)
 class GoogleAnalyticsListAccountsOperator(BaseOperator):
     """
     Lists all accounts to which the user has access.
+
+    .. seealso::
+        This operator is deprecated, please use
+        :class:`~airflow.providers.google.marketing_platform.operators.analytics_admin.GoogleAnalyticsAdminListAccountsOperator`:
 
     .. seealso::
         Check official API docs:
         https://developers.google.com/analytics/devguides/config/mgmt/v3/mgmtReference/management/accounts/list
         and for python client
         http://googleapis.github.io/google-api-python-client/docs/dyn/analytics_v3.management.accounts.html#list
-
-    .. seealso::
-        For more information on how to use this operator, take a look at the guide:
-        :ref:`howto/operator:GoogleAnalyticsListAccountsOperator`
 
     :param api_version: The version of the api that will be requested for example 'v3'.
     :param gcp_conn_id: The connection ID to use when fetching connection info.
@@ -86,17 +95,24 @@ class GoogleAnalyticsListAccountsOperator(BaseOperator):
         return result
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="GoogleAnalyticsAdminGetGoogleAdsLinkOperator",
+    reason="The Google Analytics API v3 has sunset and is no longer available as of July 1, 2024.",
+    category=AirflowProviderDeprecationWarning,
+)
 class GoogleAnalyticsGetAdsLinkOperator(BaseOperator):
     """
     Returns a web property-Google Ads link to which the user has access.
 
     .. seealso::
+        This operator is deprecated, please use
+        :class:`~airflow.providers.google.marketing_platform.operators.analytics_admin.GoogleAnalyticsAdminGetGoogleAdsLinkOperator`:
+
+    .. seealso::
         Check official API docs:
         https://developers.google.com/analytics/devguides/config/mgmt/v3/mgmtReference/management/webPropertyAdWordsLinks/get
 
-    .. seealso::
-        For more information on how to use this operator, take a look at the guide:
-        :ref:`howto/operator:GoogleAnalyticsGetAdsLinkOperator`
 
     :param account_id: ID of the account which the given web property belongs to.
     :param web_property_ad_words_link_id: Web property-Google Ads link ID.
@@ -154,17 +170,23 @@ class GoogleAnalyticsGetAdsLinkOperator(BaseOperator):
         return result
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="GoogleAnalyticsAdminListGoogleAdsLinksOperator",
+    reason="The Google Analytics API v3 has sunset and is no longer available as of July 1, 2024.",
+    category=AirflowProviderDeprecationWarning,
+)
 class GoogleAnalyticsRetrieveAdsLinksListOperator(BaseOperator):
     """
     Lists webProperty-Google Ads links for a given web property.
 
     .. seealso::
-        Check official API docs:
-        https://developers.google.com/analytics/devguides/config/mgmt/v3/mgmtReference/management/webPropertyAdWordsLinks/list#http-request
+        This operator is deprecated, please use
+        :class:`~airflow.providers.google.marketing_platform.operators.analytics_admin.GoogleAnalyticsAdminListGoogleAdsLinksOperator`:
 
     .. seealso::
-        For more information on how to use this operator, take a look at the guide:
-        :ref:`howto/operator:GoogleAnalyticsRetrieveAdsLinksListOperator`
+        Check official API docs:
+        https://developers.google.com/analytics/devguides/config/mgmt/v3/mgmtReference/management/webPropertyAdWordsLinks/list#http-request
 
     :param account_id: ID of the account which the given web property belongs to.
     :param web_property_id: Web property UA-string to retrieve the Google Ads links for.
@@ -217,9 +239,19 @@ class GoogleAnalyticsRetrieveAdsLinksListOperator(BaseOperator):
         return result
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="GoogleAnalyticsAdminCreateDataStreamOperator",
+    reason="The Google Analytics API v3 has sunset and is no longer available as of July 1, 2024.",
+    category=AirflowProviderDeprecationWarning,
+)
 class GoogleAnalyticsDataImportUploadOperator(BaseOperator):
     """
     Take a file from Cloud Storage and uploads it to GA via data import API.
+
+    .. seealso::
+        This operator is deprecated, please use
+        :class:`~airflow.providers.google.marketing_platform.operators.analytics_admin.GoogleAnalyticsAdminCreateDataStreamOperator`:
 
     :param storage_bucket: The Google cloud storage bucket where the file is stored.
     :param storage_name_object: The name of the object in the desired Google cloud
@@ -313,9 +345,19 @@ class GoogleAnalyticsDataImportUploadOperator(BaseOperator):
             )
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="GoogleAnalyticsAdminDeleteDataStreamOperator",
+    reason="The Google Analytics API v3 has sunset and is no longer available as of July 1, 2024.",
+    category=AirflowProviderDeprecationWarning,
+)
 class GoogleAnalyticsDeletePreviousDataUploadsOperator(BaseOperator):
     """
     Deletes previous GA uploads to leave the latest file to control the size of the Data Set Quota.
+
+    .. seealso::
+        This operator is deprecated, please use
+        :class:`~airflow.providers.google.marketing_platform.operators.analytics_admin.GoogleAnalyticsAdminDeleteDataStreamOperator`:
 
     :param account_id: The GA account Id (long) to which the data upload belongs.
     :param web_property_id: The web property UA-string associated with the upload.

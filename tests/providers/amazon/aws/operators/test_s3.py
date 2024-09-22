@@ -27,13 +27,7 @@ from unittest import mock
 
 import boto3
 import pytest
-from moto import mock_s3
-from openlineage.client.facet import (
-    LifecycleStateChange,
-    LifecycleStateChangeDatasetFacet,
-    LifecycleStateChangeDatasetFacetPreviousIdentifier,
-)
-from openlineage.client.run import Dataset
+from moto import mock_aws
 
 from airflow.exceptions import AirflowException
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
@@ -50,7 +44,15 @@ from airflow.providers.amazon.aws.operators.s3 import (
     S3ListPrefixesOperator,
     S3PutBucketTaggingOperator,
 )
+from airflow.providers.common.compat.openlineage.facet import (
+    Dataset,
+    LifecycleStateChange,
+    LifecycleStateChangeDatasetFacet,
+    PreviousIdentifier,
+)
 from airflow.providers.openlineage.extractors import OperatorLineage
+from airflow.utils.timezone import datetime, utcnow
+from tests.providers.amazon.aws.utils.test_template_fields import validate_template_fields
 
 BUCKET_NAME = os.environ.get("BUCKET_NAME", "test-airflow-bucket")
 S3_KEY = "test-airflow-key"
@@ -64,7 +66,7 @@ class TestS3CreateBucketOperator:
             bucket_name=BUCKET_NAME,
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "create_bucket")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_bucket_exist(self, mock_check_for_bucket, mock_create_bucket):
@@ -74,7 +76,7 @@ class TestS3CreateBucketOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         mock_create_bucket.assert_not_called()
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "create_bucket")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_not_bucket_exist(self, mock_check_for_bucket, mock_create_bucket):
@@ -84,6 +86,9 @@ class TestS3CreateBucketOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         mock_create_bucket.assert_called_once_with(bucket_name=BUCKET_NAME, region_name=None)
 
+    def test_template_fields(self):
+        validate_template_fields(self.create_bucket_operator)
+
 
 class TestS3DeleteBucketOperator:
     def setup_method(self):
@@ -92,7 +97,7 @@ class TestS3DeleteBucketOperator:
             bucket_name=BUCKET_NAME,
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "delete_bucket")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_bucket_exist(self, mock_check_for_bucket, mock_delete_bucket):
@@ -102,7 +107,7 @@ class TestS3DeleteBucketOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         mock_delete_bucket.assert_called_once_with(bucket_name=BUCKET_NAME, force_delete=False)
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "delete_bucket")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_not_bucket_exist(self, mock_check_for_bucket, mock_delete_bucket):
@@ -112,6 +117,9 @@ class TestS3DeleteBucketOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         mock_delete_bucket.assert_not_called()
 
+    def test_template_fields(self):
+        validate_template_fields(self.delete_bucket_operator)
+
 
 class TestS3GetBucketTaggingOperator:
     def setup_method(self):
@@ -120,7 +128,7 @@ class TestS3GetBucketTaggingOperator:
             bucket_name=BUCKET_NAME,
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "get_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_bucket_exist(self, mock_check_for_bucket, get_bucket_tagging):
@@ -130,7 +138,7 @@ class TestS3GetBucketTaggingOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         get_bucket_tagging.assert_called_once_with(BUCKET_NAME)
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "get_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_not_bucket_exist(self, mock_check_for_bucket, get_bucket_tagging):
@@ -139,6 +147,9 @@ class TestS3GetBucketTaggingOperator:
         self.get_bucket_tagging_operator.execute({})
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         get_bucket_tagging.assert_not_called()
+
+    def test_template_fields(self):
+        validate_template_fields(self.get_bucket_tagging_operator)
 
 
 class TestS3PutBucketTaggingOperator:
@@ -149,7 +160,7 @@ class TestS3PutBucketTaggingOperator:
             bucket_name=BUCKET_NAME,
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "put_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_bucket_exist(self, mock_check_for_bucket, put_bucket_tagging):
@@ -161,7 +172,7 @@ class TestS3PutBucketTaggingOperator:
             key=None, value=None, tag_set=TAG_SET, bucket_name=BUCKET_NAME
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "put_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_not_bucket_exist(self, mock_check_for_bucket, put_bucket_tagging):
@@ -171,6 +182,9 @@ class TestS3PutBucketTaggingOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         put_bucket_tagging.assert_not_called()
 
+    def test_template_fields(self):
+        validate_template_fields(self.put_bucket_tagging_operator)
+
 
 class TestS3DeleteBucketTaggingOperator:
     def setup_method(self):
@@ -179,7 +193,7 @@ class TestS3DeleteBucketTaggingOperator:
             bucket_name=BUCKET_NAME,
         )
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "delete_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_bucket_exist(self, mock_check_for_bucket, delete_bucket_tagging):
@@ -189,7 +203,7 @@ class TestS3DeleteBucketTaggingOperator:
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         delete_bucket_tagging.assert_called_once_with(BUCKET_NAME)
 
-    @mock_s3
+    @mock_aws
     @mock.patch.object(S3Hook, "delete_bucket_tagging")
     @mock.patch.object(S3Hook, "check_for_bucket")
     def test_execute_if_not_bucket_exist(self, mock_check_for_bucket, delete_bucket_tagging):
@@ -198,6 +212,9 @@ class TestS3DeleteBucketTaggingOperator:
         self.delete_bucket_tagging_operator.execute({})
         mock_check_for_bucket.assert_called_once_with(BUCKET_NAME)
         delete_bucket_tagging.assert_not_called()
+
+    def test_template_fields(self):
+        validate_template_fields(self.delete_bucket_tagging_operator)
 
 
 class TestS3FileTransformOperator:
@@ -221,7 +238,7 @@ class TestS3FileTransformOperator:
 
     @mock.patch("subprocess.Popen")
     @mock.patch.object(S3FileTransformOperator, "log")
-    @mock_s3
+    @mock_aws
     def test_execute_with_transform_script(self, mock_log, mock_popen):
         process_output = [b"Foo", b"Bar", b"Baz"]
         self.mock_process(mock_popen, process_output=process_output)
@@ -241,7 +258,7 @@ class TestS3FileTransformOperator:
         )
 
     @mock.patch("subprocess.Popen")
-    @mock_s3
+    @mock_aws
     def test_execute_with_failing_transform_script(self, mock_popen):
         self.mock_process(mock_popen, return_code=42)
         input_path, output_path = self.s3_paths()
@@ -260,7 +277,7 @@ class TestS3FileTransformOperator:
         assert "Transform script failed: 42" == str(ctx.value)
 
     @mock.patch("subprocess.Popen")
-    @mock_s3
+    @mock_aws
     def test_execute_with_transform_script_args(self, mock_popen):
         self.mock_process(mock_popen, process_output=[b"Foo", b"Bar", b"Baz"])
         input_path, output_path = self.s3_paths()
@@ -279,10 +296,12 @@ class TestS3FileTransformOperator:
         assert script_args == mock_popen.call_args.args[0][3:]
 
     @mock.patch("airflow.providers.amazon.aws.hooks.s3.S3Hook.select_key", return_value="input")
-    @mock_s3
+    @mock_aws
     def test_execute_with_select_expression(self, mock_select_key):
         input_path, output_path = self.s3_paths()
         select_expression = "SELECT * FROM s3object s"
+        input_serialization = None
+        output_serialization = None
 
         op = S3FileTransformOperator(
             source_s3_key=input_path,
@@ -293,7 +312,45 @@ class TestS3FileTransformOperator:
         )
         op.execute(None)
 
-        mock_select_key.assert_called_once_with(key=input_path, expression=select_expression)
+        mock_select_key.assert_called_once_with(
+            key=input_path,
+            expression=select_expression,
+            input_serialization=input_serialization,
+            output_serialization=output_serialization,
+        )
+
+        conn = boto3.client("s3")
+        result = conn.get_object(Bucket=self.bucket, Key=self.output_key)
+        assert self.content == result["Body"].read()
+
+    @mock.patch("airflow.providers.amazon.aws.hooks.s3.S3Hook.select_key", return_value="input")
+    @mock_aws
+    def test_execute_with_select_expression_and_serialization_config(self, mock_select_key):
+        input_path, output_path = self.s3_paths()
+        select_expression = "SELECT * FROM s3object s"
+        select_expr_serialization_config = {
+            "input_serialization": {"CSV": {}},
+            "output_serialization": {"CSV": {}},
+        }
+
+        op = S3FileTransformOperator(
+            source_s3_key=input_path,
+            dest_s3_key=output_path,
+            select_expression=select_expression,
+            select_expr_serialization_config=select_expr_serialization_config,
+            replace=True,
+            task_id="task_id",
+        )
+        op.execute(None)
+
+        input_serialization = select_expr_serialization_config.get("input_serialization")
+        output_serialization = select_expr_serialization_config.get("output_serialization")
+        mock_select_key.assert_called_once_with(
+            key=input_path,
+            expression=select_expression,
+            input_serialization=input_serialization,
+            output_serialization=output_serialization,
+        )
 
         conn = boto3.client("s3")
         result = conn.get_object(Bucket=self.bucket, Key=self.output_key)
@@ -340,6 +397,16 @@ class TestS3FileTransformOperator:
 
         return input_path, output_path
 
+    def test_template_fields(self):
+        operator = S3FileTransformOperator(
+            source_s3_key="test/key",
+            dest_s3_key="test/key",
+            transform_script=self.transform_script,
+            replace=True,
+            task_id="task_id",
+        )
+        validate_template_fields(operator)
+
 
 class TestS3ListOperator:
     @mock.patch("airflow.providers.amazon.aws.operators.s3.S3Hook")
@@ -363,6 +430,15 @@ class TestS3ListOperator:
         )
         assert sorted(files) == sorted(["TEST1.csv", "TEST2.csv", "TEST3.csv"])
 
+    def test_template_fields(self):
+        operator = S3ListOperator(
+            task_id="test-s3-list-operator",
+            bucket=BUCKET_NAME,
+            prefix="TEST",
+            delimiter=".csv",
+        )
+        validate_template_fields(operator)
+
 
 class TestS3ListPrefixesOperator:
     @mock.patch("airflow.providers.amazon.aws.operators.s3.S3Hook")
@@ -380,6 +456,12 @@ class TestS3ListPrefixesOperator:
         )
         assert subfolders == ["test/"]
 
+    def test_template_fields(self):
+        operator = S3ListPrefixesOperator(
+            task_id="test-s3-list-prefixes-operator", bucket=BUCKET_NAME, prefix="test/", delimiter="/"
+        )
+        validate_template_fields(operator)
+
 
 class TestS3CopyObjectOperator:
     def setup_method(self):
@@ -388,7 +470,7 @@ class TestS3CopyObjectOperator:
         self.dest_bucket = "bucket2"
         self.dest_key = "path2/data_copy.txt"
 
-    @mock_s3
+    @mock_aws
     def test_s3_copy_object_arg_combination_1(self):
         conn = boto3.client("s3")
         conn.create_bucket(Bucket=self.source_bucket)
@@ -413,7 +495,7 @@ class TestS3CopyObjectOperator:
         # the object found should be consistent with dest_key specified earlier
         assert objects_in_dest_bucket["Contents"][0]["Key"] == self.dest_key
 
-    @mock_s3
+    @mock_aws
     def test_s3_copy_object_arg_combination_2(self):
         conn = boto3.client("s3")
         conn.create_bucket(Bucket=self.source_bucket)
@@ -487,8 +569,18 @@ class TestS3CopyObjectOperator:
         assert lineage.inputs[0] == expected_input
         assert lineage.outputs[0] == expected_output
 
+    def test_template_fields(self):
+        operator = S3CopyObjectOperator(
+            task_id="test_task_s3_copy_object",
+            source_bucket_key=self.source_key,
+            source_bucket_name=self.source_bucket,
+            dest_bucket_key=self.dest_key,
+            dest_bucket_name=self.dest_bucket,
+        )
+        validate_template_fields(operator)
 
-@mock_s3
+
+@mock_aws
 class TestS3DeleteObjectsOperator:
     def test_s3_delete_single_object(self):
         bucket = "testbucket"
@@ -530,6 +622,37 @@ class TestS3DeleteObjectsOperator:
 
         # There should be no object found in the bucket created earlier
         assert "Contents" not in conn.list_objects(Bucket=bucket, Prefix=key_pattern)
+
+    def test_s3_delete_from_to_datetime(self):
+        bucket = "testbucket"
+        key_pattern = "path/data"
+        n_keys = 3
+        keys = [key_pattern + str(i) for i in range(n_keys)]
+
+        conn = boto3.client("s3")
+        conn.create_bucket(Bucket=bucket)
+        for k in keys:
+            conn.upload_fileobj(Bucket=bucket, Key=k, Fileobj=BytesIO(b"input"))
+
+        # The objects should be detected before the DELETE action is taken
+        objects_in_dest_bucket = conn.list_objects(Bucket=bucket)
+        assert len(objects_in_dest_bucket["Contents"]) == n_keys
+        assert sorted(x["Key"] for x in objects_in_dest_bucket["Contents"]) == sorted(keys)
+
+        now = utcnow()
+        from_datetime = now.replace(year=now.year - 1)
+        to_datetime = now.replace(year=now.year + 1)
+
+        op = S3DeleteObjectsOperator(
+            task_id="test_task_s3_delete_prefix",
+            bucket=bucket,
+            from_datetime=from_datetime,
+            to_datetime=to_datetime,
+        )
+        op.execute(None)
+
+        # There should be no object found in the bucket created earlier
+        assert "Contents" not in conn.list_objects(Bucket=bucket)
 
     def test_s3_delete_prefix(self):
         bucket = "testbucket"
@@ -598,31 +721,64 @@ class TestS3DeleteObjectsOperator:
         assert objects_in_dest_bucket["Contents"][0]["Key"] == key_of_test
 
     @pytest.mark.parametrize(
-        "keys, prefix",
+        "keys, prefix, from_datetime, to_datetime",
         [
-            pytest.param("path/data.txt", "path/data", id="single-key-and-prefix"),
-            pytest.param(["path/data.txt"], "path/data", id="multiple-keys-and-prefix"),
-            pytest.param(None, None, id="both-none"),
+            pytest.param("path/data.txt", "path/data", None, None, id="single-key-and-prefix"),
+            pytest.param(["path/data.txt"], "path/data", None, None, id="multiple-keys-and-prefix"),
+            pytest.param(
+                ["path/data.txt"],
+                "path/data",
+                datetime(1992, 3, 8, 18, 52, 51),
+                None,
+                id="keys-prefix-and-from_datetime",
+            ),
+            pytest.param(
+                ["path/data.txt"],
+                "path/data",
+                datetime(1992, 3, 8, 18, 52, 51),
+                datetime(1993, 3, 8, 18, 52, 51),
+                id="keys-prefix-and-from-to_datetime",
+            ),
+            pytest.param(None, None, None, None, id="all-none"),
         ],
     )
-    def test_validate_keys_and_prefix_in_constructor(self, keys, prefix):
-        with pytest.raises(AirflowException, match=r"Either keys or prefix should be set\."):
+    def test_validate_keys_and_filters_in_constructor(self, keys, prefix, from_datetime, to_datetime):
+        with pytest.raises(
+            AirflowException,
+            match=r"Either keys or at least one of prefix, from_datetime, to_datetime should be set.",
+        ):
             S3DeleteObjectsOperator(
                 task_id="test_validate_keys_and_prefix_in_constructor",
                 bucket="foo-bar-bucket",
                 keys=keys,
                 prefix=prefix,
+                from_datetime=from_datetime,
+                to_datetime=to_datetime,
             )
 
     @pytest.mark.parametrize(
-        "keys, prefix",
+        "keys, prefix, from_datetime, to_datetime",
         [
-            pytest.param("path/data.txt", "path/data", id="single-key-and-prefix"),
-            pytest.param(["path/data.txt"], "path/data", id="multiple-keys-and-prefix"),
-            pytest.param(None, None, id="both-none"),
+            pytest.param("path/data.txt", "path/data", None, None, id="single-key-and-prefix"),
+            pytest.param(["path/data.txt"], "path/data", None, None, id="multiple-keys-and-prefix"),
+            pytest.param(
+                ["path/data.txt"],
+                "path/data",
+                datetime(1992, 3, 8, 18, 52, 51),
+                None,
+                id="keys-prefix-and-from_datetime",
+            ),
+            pytest.param(
+                ["path/data.txt"],
+                "path/data",
+                datetime(1992, 3, 8, 18, 52, 51),
+                datetime(1993, 3, 8, 18, 52, 51),
+                id="keys-prefix-and-from-to_datetime",
+            ),
+            pytest.param(None, None, None, None, id="all-none"),
         ],
     )
-    def test_validate_keys_and_prefix_in_execute(self, keys, prefix):
+    def test_validate_keys_and_prefix_in_execute(self, keys, prefix, from_datetime, to_datetime):
         bucket = "testbucket"
         key_of_test = "path/data.txt"
 
@@ -639,13 +795,18 @@ class TestS3DeleteObjectsOperator:
         )
         op.keys = keys
         op.prefix = prefix
+        op.from_datetime = from_datetime
+        op.to_datetime = to_datetime
 
         # The object should be detected before the DELETE action is tested
         objects_in_dest_bucket = conn.list_objects(Bucket=bucket, Prefix=key_of_test)
         assert len(objects_in_dest_bucket["Contents"]) == 1
         assert objects_in_dest_bucket["Contents"][0]["Key"] == key_of_test
 
-        with pytest.raises(AirflowException, match=r"Either keys or prefix should be set\."):
+        with pytest.raises(
+            AirflowException,
+            match=r"Either keys or at least one of prefix, from_datetime, to_datetime should be set.",
+        ):
             op.execute(None)
 
         # The object found in the bucket created earlier should still be there
@@ -663,7 +824,7 @@ class TestS3DeleteObjectsOperator:
             facets={
                 "lifecycleStateChange": LifecycleStateChangeDatasetFacet(
                     lifecycleStateChange=LifecycleStateChange.DROP.value,
-                    previousIdentifier=LifecycleStateChangeDatasetFacetPreviousIdentifier(
+                    previousIdentifier=PreviousIdentifier(
                         namespace=f"s3://{bucket}",
                         name="path/data.txt",
                     ),
@@ -689,7 +850,7 @@ class TestS3DeleteObjectsOperator:
                 facets={
                     "lifecycleStateChange": LifecycleStateChangeDatasetFacet(
                         lifecycleStateChange=LifecycleStateChange.DROP.value,
-                        previousIdentifier=LifecycleStateChangeDatasetFacetPreviousIdentifier(
+                        previousIdentifier=PreviousIdentifier(
                             namespace=f"s3://{bucket}",
                             name="path/data1.txt",
                         ),
@@ -702,7 +863,7 @@ class TestS3DeleteObjectsOperator:
                 facets={
                     "lifecycleStateChange": LifecycleStateChangeDatasetFacet(
                         lifecycleStateChange=LifecycleStateChange.DROP.value,
-                        previousIdentifier=LifecycleStateChangeDatasetFacetPreviousIdentifier(
+                        previousIdentifier=PreviousIdentifier(
                             namespace=f"s3://{bucket}",
                             name="path/data2.txt",
                         ),
@@ -728,6 +889,12 @@ class TestS3DeleteObjectsOperator:
 
         lineage = op.get_openlineage_facets_on_complete(None)
         assert lineage == OperatorLineage()
+
+    def test_template_fields(self):
+        operator = S3DeleteObjectsOperator(
+            task_id="test_task_s3_delete_single_object", bucket="test-bucket", keys="test/file.csv"
+        )
+        validate_template_fields(operator)
 
 
 class TestS3CreateObjectOperator:
@@ -782,3 +949,7 @@ class TestS3CreateObjectOperator:
         assert len(lineage.inputs) == 0
         assert len(lineage.outputs) == 1
         assert lineage.outputs[0] == expected_output
+
+    def test_template_fields(self):
+        operator = S3CreateObjectOperator(task_id="test", s3_bucket="bucket", s3_key="key", data="test")
+        validate_template_fields(operator)

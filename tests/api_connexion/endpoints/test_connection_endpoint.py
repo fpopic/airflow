@@ -31,7 +31,7 @@ from tests.test_utils.config import conf_vars
 from tests.test_utils.db import clear_db_connections
 from tests.test_utils.www import _check_last_log
 
-pytestmark = pytest.mark.db_test
+pytestmark = [pytest.mark.db_test, pytest.mark.skip_if_database_isolation_mode]
 
 
 @pytest.fixture(scope="module")
@@ -87,7 +87,7 @@ class TestDeleteConnection(TestConnectionEndpoint):
         assert response.status_code == 204
         connection = session.query(Connection).all()
         assert len(connection) == 0
-        _check_last_log(session, dag_id=None, event="connection.delete", execution_date=None)
+        _check_last_log(session, dag_id=None, event="api.connection.delete", execution_date=None)
 
     def test_delete_should_respond_404(self):
         response = self.client.delete(
@@ -123,7 +123,7 @@ class TestGetConnection(TestConnectionEndpoint):
             login="login",
             schema="testschema",
             port=80,
-            extra="{'param': 'value'}",
+            extra='{"param": "value"}',
         )
         session.add(connection_model)
         session.commit()
@@ -141,9 +141,10 @@ class TestGetConnection(TestConnectionEndpoint):
             "login": "login",
             "schema": "testschema",
             "port": 80,
-            "extra": "{'param': 'value'}",
+            "extra": '{"param": "value"}',
         }
 
+    @pytest.mark.enable_redact
     def test_should_mask_sensitive_values_in_extra(self, session):
         connection_model = Connection(
             conn_id="test-connection-id",
@@ -363,8 +364,8 @@ class TestPatchConnection(TestConnectionEndpoint):
     @pytest.mark.parametrize(
         "payload",
         [
-            {"connection_id": "test-connection-id", "conn_type": "test_type", "extra": "{'key': 'var'}"},
-            {"extra": "{'key': 'var'}"},
+            {"connection_id": "test-connection-id", "conn_type": "test_type", "extra": '{"key": "var"}'},
+            {"extra": '{"key": "var"}'},
         ],
     )
     @provide_session
@@ -375,7 +376,7 @@ class TestPatchConnection(TestConnectionEndpoint):
             "/api/v1/connections/test-connection-id", json=payload, environ_overrides={"REMOTE_USER": "test"}
         )
         assert response.status_code == 200
-        _check_last_log(session, dag_id=None, event="connection.edit", execution_date=None)
+        _check_last_log(session, dag_id=None, event="api.connection.edit", execution_date=None)
 
     def test_patch_should_respond_200_with_update_mask(self, session):
         self._create_connection(session)
@@ -539,7 +540,9 @@ class TestPostConnection(TestConnectionEndpoint):
         connection = session.query(Connection).all()
         assert len(connection) == 1
         assert connection[0].conn_id == "test-connection-id"
-        _check_last_log(session, dag_id=None, event="connection.create", execution_date=None)
+        _check_last_log(
+            session, dag_id=None, event="api.connection.create", execution_date=None, expected_extra=payload
+        )
 
     def test_post_should_respond_200_extra_null(self, session):
         payload = {"connection_id": "test-connection-id", "conn_type": "test_type", "extra": None}

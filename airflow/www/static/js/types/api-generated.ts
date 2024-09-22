@@ -1,22 +1,3 @@
-/*!
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
- *
- *   http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing,
- * software distributed under the License is distributed on an
- * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- * KIND, either express or implied.  See the License for the
- * specific language governing permissions and limitations
- * under the License.
- */
-
 /* eslint-disable */
 import type { CamelCasedPropertiesDeep } from "type-fest";
 /**
@@ -139,6 +120,44 @@ export interface paths {
       };
     };
   };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/dependencies": {
+    /**
+     * Get task dependencies blocking task from getting scheduled.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_task_instance_dependencies"];
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+      };
+    };
+  };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/{map_index}/dependencies": {
+    /**
+     * Get task dependencies blocking task from getting scheduled.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_mapped_task_instance_dependencies"];
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+        /** The map index. */
+        map_index: components["parameters"]["MapIndex"];
+      };
+    };
+  };
   "/dags/{dag_id}/updateTaskInstancesState": {
     /** Updates the state for multiple task instances simultaneously. */
     post: operations["post_set_task_instances_state"];
@@ -228,6 +247,82 @@ export interface paths {
         dag_id: components["parameters"]["DAGID"];
         /** The DAG run ID. */
         dag_run_id: components["parameters"]["DAGRunID"];
+      };
+    };
+  };
+  "/dags/{dag_id}/datasets/queuedEvent/{uri}": {
+    /**
+     * Get a queued Dataset event for a DAG.
+     *
+     * *New in version 2.9.0*
+     */
+    get: operations["get_dag_dataset_queued_event"];
+    /**
+     * Delete a queued Dataset event for a DAG.
+     *
+     * *New in version 2.9.0*
+     */
+    delete: operations["delete_dag_dataset_queued_event"];
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
+      };
+    };
+  };
+  "/dags/{dag_id}/datasets/queuedEvent": {
+    /**
+     * Get queued Dataset events for a DAG.
+     *
+     * *New in version 2.9.0*
+     */
+    get: operations["get_dag_dataset_queued_events"];
+    /**
+     * Delete queued Dataset events for a DAG.
+     *
+     * *New in version 2.9.0*
+     */
+    delete: operations["delete_dag_dataset_queued_events"];
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+      };
+    };
+  };
+  "/parseDagFile/{file_token}": {
+    /** Request re-parsing of existing DAG files using a file token. */
+    put: operations["reparse_dag_file"];
+    parameters: {
+      path: {
+        /**
+         * The key containing the encrypted path to the file. Encryption and decryption take place only on
+         * the server. This prevents the client from reading an non-DAG file. This also ensures API
+         * extensibility, because the format of encrypted data may change.
+         */
+        file_token: components["parameters"]["FileToken"];
+      };
+    };
+  };
+  "/datasets/queuedEvent/{uri}": {
+    /**
+     * Get queued Dataset events for a Dataset
+     *
+     * *New in version 2.9.0*
+     */
+    get: operations["get_dataset_queued_events"];
+    /**
+     * Delete queued Dataset events for a Dataset.
+     *
+     * *New in version 2.9.0*
+     */
+    delete: operations["delete_dataset_queued_events"];
+    parameters: {
+      path: {
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
       };
     };
   };
@@ -360,6 +455,8 @@ export interface paths {
         pool?: components["parameters"]["FilterPool"];
         /** The value can be repeated to retrieve multiple matching values (OR condition). */
         queue?: components["parameters"]["FilterQueue"];
+        /** The value can be repeated to retrieve multiple matching values (OR condition). */
+        executor?: components["parameters"]["FilterExecutor"];
       };
     };
   };
@@ -430,6 +527,38 @@ export interface paths {
      * This endpoint is a POST to allow filtering across a large number of DAG IDs, where as a GET it would run in to maximum HTTP request URL length limits.
      */
     post: operations["get_task_instances_batch"];
+  };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/tries/{task_try_number}": {
+    /**
+     * Get details of a task instance try.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_task_instance_try_details"];
+  };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/tries": {
+    /**
+     * Get details of all task instance tries.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_task_instance_tries"];
+  };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/{map_index}/tries": {
+    /**
+     * Get details of all task instance tries.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_mapped_task_instance_tries"];
+  };
+  "/dags/{dag_id}/dagRuns/{dag_run_id}/taskInstances/{task_id}/{map_index}/tries/{task_try_number}": {
+    /**
+     * Get details of a mapped task instance try.
+     *
+     * *New in version 2.10.0*
+     */
+    get: operations["get_mapped_task_instance_try_details"];
   };
   "/variables": {
     /** The collection does not contain data. To get data, you must get a single entity. */
@@ -589,6 +718,9 @@ export interface paths {
       };
     };
   };
+  "/dagStats": {
+    get: operations["get_dag_stats"];
+  };
   "/dagSources/{file_token}": {
     /** Get a source code using file token. */
     get: operations["get_dag_source"];
@@ -622,31 +754,8 @@ export interface paths {
   "/datasets/events": {
     /** Get dataset events */
     get: operations["get_dataset_events"];
-    parameters: {
-      query: {
-        /** The numbers of items to return. */
-        limit?: components["parameters"]["PageLimit"];
-        /** The number of items to skip before starting to collect the result set. */
-        offset?: components["parameters"]["PageOffset"];
-        /**
-         * The name of the field to order the results by.
-         * Prefix a field name with `-` to reverse the sort order.
-         *
-         * *New in version 2.1.0*
-         */
-        order_by?: components["parameters"]["OrderBy"];
-        /** The Dataset ID that updated the dataset. */
-        dataset_id?: components["parameters"]["FilterDatasetID"];
-        /** The DAG ID that updated the dataset. */
-        source_dag_id?: components["parameters"]["FilterSourceDAGID"];
-        /** The task ID that updated the dataset. */
-        source_task_id?: components["parameters"]["FilterSourceTaskID"];
-        /** The DAG run ID that updated the dataset. */
-        source_run_id?: components["parameters"]["FilterSourceRunID"];
-        /** The map index that updated the dataset. */
-        source_map_index?: components["parameters"]["FilterSourceMapIndex"];
-      };
-    };
+    /** Create dataset event */
+    post: operations["create_dataset_event"];
   };
   "/config": {
     get: operations["get_config"];
@@ -671,98 +780,6 @@ export interface paths {
      * *New in version 2.1.0*
      */
     get: operations["get_plugins"];
-  };
-  "/roles": {
-    /**
-     * Get a list of roles.
-     *
-     * *New in version 2.1.0*
-     */
-    get: operations["get_roles"];
-    /**
-     * Create a new role.
-     *
-     * *New in version 2.1.0*
-     */
-    post: operations["post_role"];
-  };
-  "/roles/{role_name}": {
-    /**
-     * Get a role.
-     *
-     * *New in version 2.1.0*
-     */
-    get: operations["get_role"];
-    /**
-     * Delete a role.
-     *
-     * *New in version 2.1.0*
-     */
-    delete: operations["delete_role"];
-    /**
-     * Update a role.
-     *
-     * *New in version 2.1.0*
-     */
-    patch: operations["patch_role"];
-    parameters: {
-      path: {
-        /** The role name */
-        role_name: components["parameters"]["RoleName"];
-      };
-    };
-  };
-  "/permissions": {
-    /**
-     * Get a list of permissions.
-     *
-     * *New in version 2.1.0*
-     */
-    get: operations["get_permissions"];
-  };
-  "/users": {
-    /**
-     * Get a list of users.
-     *
-     * *New in version 2.1.0*
-     */
-    get: operations["get_users"];
-    /**
-     * Create a new user with unique username and email.
-     *
-     * *New in version 2.2.0*
-     */
-    post: operations["post_user"];
-  };
-  "/users/{username}": {
-    /**
-     * Get a user with a specific username.
-     *
-     * *New in version 2.1.0*
-     */
-    get: operations["get_user"];
-    /**
-     * Delete a user with a specific username.
-     *
-     * *New in version 2.2.0*
-     */
-    delete: operations["delete_user"];
-    /**
-     * Update fields for a user.
-     *
-     * *New in version 2.2.0*
-     */
-    patch: operations["patch_user"];
-    parameters: {
-      path: {
-        /**
-         * The username of the user.
-         *
-         * *New in version 2.1.0*
-         */
-        username: components["parameters"]["Username"];
-      };
-    };
   };
 }
 
@@ -897,8 +914,12 @@ export interface components {
     DAG: {
       /** @description The ID of the DAG. */
       dag_id?: string;
-      /** @description If the DAG is SubDAG then it is the top level DAG identifier. Otherwise, null. */
-      root_dag_id?: string | null;
+      /**
+       * @description Human centric display text for the DAG.
+       *
+       * *New in version 2.9.0*
+       */
+      dag_display_name?: string;
       /** @description Whether the DAG is paused. */
       is_paused?: boolean | null;
       /**
@@ -909,8 +930,6 @@ export interface components {
        * *Changed in version 2.2.0*&#58; Field is read-only.
        */
       is_active?: boolean | null;
-      /** @description Whether the DAG is SubDAG. */
-      is_subdag?: boolean;
       /**
        * Format: date-time
        * @description The last time the DAG was parsed.
@@ -958,9 +977,14 @@ export interface components {
       owners?: string[];
       /** @description User-provided DAG description, which can consist of several sentences or paragraphs that describe DAG contents. */
       description?: string | null;
-      schedule_interval?: components["schemas"]["ScheduleInterval"];
       /**
-       * @description Timetable/Schedule Interval description.
+       * @description Timetable summary.
+       *
+       * *New in version 3.0.0*
+       */
+      timetable_summary?: string | null;
+      /**
+       * @description Timetable description.
        *
        * *New in version 2.3.0*
        */
@@ -1019,6 +1043,12 @@ export interface components {
        * *New in version 2.3.0*
        */
       next_dagrun_create_after?: string | null;
+      /**
+       * @description (experimental) The maximum number of consecutive DAG failures before DAG is automatically paused.
+       *
+       * *New in version 2.9.0*
+       */
+      max_consecutive_failed_dag_runs?: number | null;
     };
     /**
      * @description Collection of DAGs.
@@ -1077,9 +1107,15 @@ export interface components {
       start_date?: string | null;
       /** Format: date-time */
       end_date?: string | null;
-      /** Format: date-time */
+      /**
+       * Format: date-time
+       * @description The beginning of the interval the DAG run covers.
+       */
       data_interval_start?: string | null;
-      /** Format: date-time */
+      /**
+       * Format: date-time
+       * @description The end of the interval the DAG run covers.
+       */
       data_interval_end?: string | null;
       /** Format: date-time */
       last_scheduling_decision?: string | null;
@@ -1121,6 +1157,23 @@ export interface components {
     DAGRunCollection: {
       dag_runs?: components["schemas"]["DAGRun"][];
     } & components["schemas"]["CollectionInfo"];
+    /** @description Collection of Dag statistics. */
+    DagStatsCollectionSchema: {
+      dags?: components["schemas"]["DagStatsCollectionItem"][];
+    } & components["schemas"]["CollectionInfo"];
+    /** @description DagStats entry collection item. */
+    DagStatsCollectionItem: {
+      /** @description The DAG ID. */
+      dag_id?: string;
+      stats?: components["schemas"]["DagStatsStateCollectionItem"][] | null;
+    };
+    /** @description DagStatsState entry collection item. */
+    DagStatsStateCollectionItem: {
+      /** @description The DAG state. */
+      state?: string;
+      /** @description The DAG state count. */
+      count?: number;
+    };
     DagWarning: {
       /** @description The dag_id. */
       dag_id?: string;
@@ -1153,8 +1206,14 @@ export interface components {
       when?: string;
       /** @description The DAG ID */
       dag_id?: string | null;
-      /** @description The DAG ID */
+      /** @description The Task ID */
       task_id?: string | null;
+      /** @description The DAG Run ID */
+      run_id?: string | null;
+      /** @description The Map Index */
+      map_index?: number | null;
+      /** @description The Try Number */
+      try_number?: number | null;
       /** @description A key describing the type of event. */
       event?: string;
       /**
@@ -1163,7 +1222,7 @@ export interface components {
        */
       execution_date?: string | null;
       /** @description Name of the user who triggered these events a. */
-      owner?: string;
+      owner?: string | null;
       /** @description Other information that was not included in the other fields, e.g. the complete CLI command. */
       extra?: string | null;
     };
@@ -1171,6 +1230,7 @@ export interface components {
      * @description Collection of event logs.
      *
      * *Changed in version 2.1.0*&#58; 'total_entries' field is added.
+     * *Changed in version 2.10.0*&#58; 'try_number' and 'map_index' fields are added.
      */
     EventLogCollection: {
       event_logs?: components["schemas"]["EventLog"][];
@@ -1185,7 +1245,7 @@ export interface components {
       timestamp?: string;
       /** @description The filename */
       filename?: string;
-      /** @description The full stackstrace.. */
+      /** @description The full stackstrace. */
       stack_trace?: string;
     };
     /**
@@ -1327,6 +1387,13 @@ export interface components {
       created_date?: string;
       triggerer_id?: number | null;
     } | null;
+    TaskFailedDependency: {
+      name?: string;
+      reason?: string;
+    };
+    TaskInstanceDependencyCollection: {
+      dependencies?: components["schemas"]["TaskFailedDependency"][];
+    };
     Job: {
       id?: number;
       dag_id?: string | null;
@@ -1344,6 +1411,12 @@ export interface components {
     } | null;
     TaskInstance: {
       task_id?: string;
+      /**
+       * @description Human centric display text for the task.
+       *
+       * *New in version 2.9.0*
+       */
+      task_display_name?: string;
       dag_id?: string;
       /**
        * @description The DagRun ID for this task instance
@@ -1370,10 +1443,23 @@ export interface components {
       priority_weight?: number | null;
       /** @description *Changed in version 2.1.1*&#58; Field becomes nullable. */
       operator?: string | null;
+      /** @description The datetime that the task enter the state QUEUE, also known as queue_at */
       queued_when?: string | null;
       pid?: number | null;
+      /**
+       * @description Executor the task is configured to run on or None (which indicates the default executor)
+       *
+       * *New in version 2.10.0*
+       */
+      executor?: string | null;
       executor_config?: string;
       sla_miss?: components["schemas"]["SLAMiss"];
+      /**
+       * @description Rendered name of an expanded task instance, if the task is mapped.
+       *
+       * *New in version 2.9.0*
+       */
+      rendered_map_index?: string | null;
       /**
        * @description JSON object describing rendered fields.
        *
@@ -1460,8 +1546,13 @@ export interface components {
     } & components["schemas"]["CollectionInfo"];
     /** @description Full representations of XCom entry. */
     XCom: components["schemas"]["XComCollectionItem"] & {
-      /** @description The value */
-      value?: string;
+      /** @description The value(s), */
+      value?: Partial<string> &
+        Partial<number> &
+        Partial<number> &
+        Partial<boolean> &
+        Partial<unknown[]> &
+        Partial<{ [key: string]: unknown } | null>;
     };
     /**
      * @description DAG details.
@@ -1470,10 +1561,10 @@ export interface components {
      * [airflow.models.dag.DAG](https://airflow.apache.org/docs/apache-airflow/stable/_api/airflow/models/dag/index.html#airflow.models.dag.DAG)
      */
     DAGDetail: components["schemas"]["DAG"] & {
-      timezone?: components["schemas"]["Timezone"];
-      catchup?: boolean;
-      orientation?: string;
-      concurrency?: number;
+      timezone?: components["schemas"]["Timezone"] | null;
+      catchup?: boolean | null;
+      orientation?: string | null;
+      concurrency?: number | null;
       /**
        * Format: date-time
        * @description The DAG's start date.
@@ -1481,7 +1572,9 @@ export interface components {
        * *Changed in version 2.0.1*&#58; Field becomes nullable.
        */
       start_date?: string | null;
-      dag_run_timeout?: components["schemas"]["TimeDelta"];
+      dag_run_timeout?: components["schemas"]["TimeDelta"] | null;
+      /** @description Nested dataset any/all conditions */
+      dataset_expression?: { [key: string]: unknown } | null;
       doc_md?: string | null;
       default_view?: string | null;
       /**
@@ -1540,9 +1633,10 @@ export interface components {
     Task: {
       class_ref?: components["schemas"]["ClassReference"];
       task_id?: string;
+      task_display_name?: string;
       owner?: string;
       /** Format: date-time */
-      start_date?: string;
+      start_date?: string | null;
       /** Format: date-time */
       end_date?: string | null;
       trigger_rule?: components["schemas"]["TriggerRule"];
@@ -1554,6 +1648,7 @@ export interface components {
       wait_for_downstream?: boolean;
       retries?: number;
       queue?: string | null;
+      executor?: string | null;
       pool?: string;
       pool_slots?: number;
       execution_timeout?: components["schemas"]["TimeDelta"];
@@ -1566,6 +1661,12 @@ export interface components {
       template_fields?: string[];
       sub_dag?: components["schemas"]["DAG"];
       downstream_task_ids?: string[];
+      /**
+       * @description Task documentation in markdown.
+       *
+       * *New in version 2.10.0*
+       */
+      doc_md?: string | null;
     };
     /** @description Collection of tasks. */
     TaskCollection: {
@@ -1750,6 +1851,31 @@ export interface components {
       /** @description The dataset event creation time */
       timestamp?: string;
     };
+    CreateDatasetEvent: {
+      /** @description The URI of the dataset */
+      dataset_uri: string;
+      /** @description The dataset event extra */
+      extra?: { [key: string]: unknown } | null;
+    };
+    QueuedEvent: {
+      /** @description The datata uri. */
+      uri?: string;
+      /** @description The DAG ID. */
+      dag_id?: string;
+      /**
+       * Format: date-time
+       * @description The creation time of QueuedEvent
+       */
+      created_at?: string;
+    };
+    /**
+     * @description A collection of Dataset Dag Run Queues.
+     *
+     * *New in version 2.9.0*
+     */
+    QueuedEventCollection: {
+      datasets?: components["schemas"]["QueuedEvent"][];
+    } & components["schemas"]["CollectionInfo"];
     BasicDAGRun: {
       /** @description Run ID. */
       run_id?: string;
@@ -1854,10 +1980,6 @@ export interface components {
        * @default false
        */
       only_running?: boolean;
-      /** @description Clear tasks in subdags and clear external tasks indicated by ExternalTaskMarker. */
-      include_subdags?: boolean;
-      /** @description Clear tasks in the parent dag of the subdag. */
-      include_parentdag?: boolean;
       /** @description Set state of DAG runs to RUNNING. */
       reset_dag_runs?: boolean;
       /** @description The DagRun ID for this task instance */
@@ -2074,16 +2196,19 @@ export interface components {
       pool?: string[];
       /** @description The value can be repeated to retrieve multiple matching values (OR condition). */
       queue?: string[];
+      /** @description The value can be repeated to retrieve multiple matching values (OR condition). */
+      executor?: string[];
+      /**
+       * @description The name of the field to order the results by. Prefix a field name
+       * with `-` to reverse the sort order. `order_by` defaults to
+       * `map_index` when unspecified.
+       * Supported field names: `state`, `duration`, `start_date`, `end_date`
+       * and `map_index`.
+       *
+       * *New in version 3.0.0*
+       */
+      order_by?: string;
     };
-    /**
-     * @description Schedule interval. Defines how often DAG runs, this object gets added to your latest task instance's
-     * execution_date to figure out the next schedule.
-     */
-    ScheduleInterval:
-      | (Partial<components["schemas"]["TimeDelta"]> &
-          Partial<components["schemas"]["RelativeDelta"]> &
-          Partial<components["schemas"]["CronExpression"]>)
-      | null;
     /** @description Time delta */
     TimeDelta: {
       __type: string;
@@ -2402,6 +2527,8 @@ export interface components {
     FilterPool: string[];
     /** @description The value can be repeated to retrieve multiple matching values (OR condition). */
     FilterQueue: string[];
+    /** @description The value can be repeated to retrieve multiple matching values (OR condition). */
+    FilterExecutor: string[];
     /**
      * @description List of tags to filter results.
      *
@@ -2420,6 +2547,18 @@ export interface components {
     FilterSourceMapIndex: number;
     /** @description Filter on map index for mapped task. */
     FilterMapIndex: number;
+    /** @description Filter on try_number for task instance. */
+    FilterTryNumber: number;
+    /**
+     * @description The name of the field to order the results by. Prefix a field name
+     * with `-` to reverse the sort order. `order_by` defaults to
+     * `map_index` when unspecified.
+     * Supported field names: `state`, `duration`, `start_date`, `end_date`
+     * and `map_index`.
+     *
+     * *New in version 3.0.0*
+     */
+    TaskInstanceOrderBy: string;
     /**
      * @description The name of the field to order the results by.
      * Prefix a field name with `-` to reverse the sort order.
@@ -2461,6 +2600,8 @@ export interface components {
     FilterDAGID: string;
     /** @description Returns objects matched by the Task ID. */
     FilterTaskID: string;
+    /** @description Returns objects matched by the Run ID. */
+    FilterRunID: string;
     /**
      * @description The key containing the encrypted path to the file. Encryption and decryption take place only on
      * the server. This prevents the client from reading an non-DAG file. This also ensures API
@@ -2472,6 +2613,8 @@ export interface components {
      * A comma-separated list of fully qualified names of fields.
      */
     UpdateMask: string[];
+    /** @description List of field for return. */
+    ReturnFields: string[];
   };
   requestBodies: {};
   headers: {};
@@ -2659,6 +2802,8 @@ export interface operations {
          * *New in version 2.6.0*
          */
         paused?: components["parameters"]["Paused"];
+        /** List of field for return. */
+        fields?: components["parameters"]["ReturnFields"];
         /** If set, only return DAGs with dag_ids matching this pattern. */
         dag_id_pattern?: string;
       };
@@ -2732,6 +2877,10 @@ export interface operations {
       path: {
         /** The DAG ID. */
         dag_id: components["parameters"]["DAGID"];
+      };
+      query: {
+        /** List of field for return. */
+        fields?: components["parameters"]["ReturnFields"];
       };
     };
     responses: {
@@ -2898,6 +3047,66 @@ export interface operations {
       };
     };
   };
+  /**
+   * Get task dependencies blocking task from getting scheduled.
+   *
+   * *New in version 2.10.0*
+   */
+  get_task_instance_dependencies: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstanceDependencyCollection"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get task dependencies blocking task from getting scheduled.
+   *
+   * *New in version 2.10.0*
+   */
+  get_mapped_task_instance_dependencies: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+        /** The map index. */
+        map_index: components["parameters"]["MapIndex"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstanceDependencyCollection"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
   /** Updates the state for multiple task instances simultaneously. */
   post_set_task_instances_state: {
     parameters: {
@@ -2997,6 +3206,8 @@ export interface operations {
          * *New in version 2.1.0*
          */
         order_by?: components["parameters"]["OrderBy"];
+        /** List of field for return. */
+        fields?: components["parameters"]["ReturnFields"];
       };
     };
     responses: {
@@ -3062,6 +3273,10 @@ export interface operations {
         dag_id: components["parameters"]["DAGID"];
         /** The DAG run ID. */
         dag_run_id: components["parameters"]["DAGRunID"];
+      };
+      query: {
+        /** List of field for return. */
+        fields?: components["parameters"]["ReturnFields"];
       };
     };
     responses: {
@@ -3218,6 +3433,189 @@ export interface operations {
       };
     };
   };
+  /**
+   * Get a queued Dataset event for a DAG.
+   *
+   * *New in version 2.9.0*
+   */
+  get_dag_dataset_queued_event: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["QueuedEvent"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Delete a queued Dataset event for a DAG.
+   *
+   * *New in version 2.9.0*
+   */
+  delete_dag_dataset_queued_event: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      204: never;
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get queued Dataset events for a DAG.
+   *
+   * *New in version 2.9.0*
+   */
+  get_dag_dataset_queued_events: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["QueuedEventCollection"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Delete queued Dataset events for a DAG.
+   *
+   * *New in version 2.9.0*
+   */
+  delete_dag_dataset_queued_events: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      204: never;
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /** Request re-parsing of existing DAG files using a file token. */
+  reparse_dag_file: {
+    parameters: {
+      path: {
+        /**
+         * The key containing the encrypted path to the file. Encryption and decryption take place only on
+         * the server. This prevents the client from reading an non-DAG file. This also ensures API
+         * extensibility, because the format of encrypted data may change.
+         */
+        file_token: components["parameters"]["FileToken"];
+      };
+    };
+    responses: {
+      /** Success. */
+      201: unknown;
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get queued Dataset events for a Dataset
+   *
+   * *New in version 2.9.0*
+   */
+  get_dataset_queued_events: {
+    parameters: {
+      path: {
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["QueuedEventCollection"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Delete queued Dataset events for a Dataset.
+   *
+   * *New in version 2.9.0*
+   */
+  delete_dataset_queued_events: {
+    parameters: {
+      path: {
+        /** The encoded Dataset URI */
+        uri: components["parameters"]["DatasetURI"];
+      };
+      query: {
+        /** Timestamp to select event logs occurring before. */
+        before?: components["parameters"]["Before"];
+      };
+    };
+    responses: {
+      /** Success. */
+      204: never;
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
   /** List log entries from event log. */
   get_event_logs: {
     parameters: {
@@ -3237,6 +3635,12 @@ export interface operations {
         dag_id?: components["parameters"]["FilterDAGID"];
         /** Returns objects matched by the Task ID. */
         task_id?: components["parameters"]["FilterTaskID"];
+        /** Returns objects matched by the Run ID. */
+        run_id?: components["parameters"]["FilterRunID"];
+        /** Filter on map index for mapped task. */
+        map_index?: components["parameters"]["FilterMapIndex"];
+        /** Filter on try_number for task instance. */
+        try_number?: components["parameters"]["FilterTryNumber"];
         /** The name of event log. */
         event?: components["parameters"]["Event"];
         /** The owner's name of event log. */
@@ -3245,6 +3649,16 @@ export interface operations {
         before?: components["parameters"]["Before"];
         /** Timestamp to select event logs occurring after. */
         after?: components["parameters"]["After"];
+        /**
+         * One or more event names separated by commas. If set, only return event logs with events matching this pattern.
+         * *New in version 2.9.0*
+         */
+        included_events?: string;
+        /**
+         * One or more event names separated by commas. If set, only return event logs with events that do not match this pattern.
+         * *New in version 2.9.0*
+         */
+        excluded_events?: string;
       };
     };
     responses: {
@@ -3534,10 +3948,22 @@ export interface operations {
         pool?: components["parameters"]["FilterPool"];
         /** The value can be repeated to retrieve multiple matching values (OR condition). */
         queue?: components["parameters"]["FilterQueue"];
+        /** The value can be repeated to retrieve multiple matching values (OR condition). */
+        executor?: components["parameters"]["FilterExecutor"];
         /** The numbers of items to return. */
         limit?: components["parameters"]["PageLimit"];
         /** The number of items to skip before starting to collect the result set. */
         offset?: components["parameters"]["PageOffset"];
+        /**
+         * The name of the field to order the results by. Prefix a field name
+         * with `-` to reverse the sort order. `order_by` defaults to
+         * `map_index` when unspecified.
+         * Supported field names: `state`, `duration`, `start_date`, `end_date`
+         * and `map_index`.
+         *
+         * *New in version 3.0.0*
+         */
+        order_by?: components["parameters"]["TaskInstanceOrderBy"];
       };
     };
     responses: {
@@ -3762,13 +4188,18 @@ export interface operations {
         pool?: components["parameters"]["FilterPool"];
         /** The value can be repeated to retrieve multiple matching values (OR condition). */
         queue?: components["parameters"]["FilterQueue"];
+        /** The value can be repeated to retrieve multiple matching values (OR condition). */
+        executor?: components["parameters"]["FilterExecutor"];
         /**
-         * The name of the field to order the results by.
-         * Prefix a field name with `-` to reverse the sort order.
+         * The name of the field to order the results by. Prefix a field name
+         * with `-` to reverse the sort order. `order_by` defaults to
+         * `map_index` when unspecified.
+         * Supported field names: `state`, `duration`, `start_date`, `end_date`
+         * and `map_index`.
          *
-         * *New in version 2.1.0*
+         * *New in version 3.0.0*
          */
-        order_by?: components["parameters"]["OrderBy"];
+        order_by?: components["parameters"]["TaskInstanceOrderBy"];
       };
     };
     responses: {
@@ -3803,6 +4234,152 @@ export interface operations {
       content: {
         "application/json": components["schemas"]["ListTaskInstanceForm"];
       };
+    };
+  };
+  /**
+   * Get details of a task instance try.
+   *
+   * *New in version 2.10.0*
+   */
+  get_task_instance_try_details: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+        /** The task try number. */
+        task_try_number: components["parameters"]["TaskTryNumber"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstance"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get details of all task instance tries.
+   *
+   * *New in version 2.10.0*
+   */
+  get_task_instance_tries: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+      };
+      query: {
+        /** The numbers of items to return. */
+        limit?: components["parameters"]["PageLimit"];
+        /** The number of items to skip before starting to collect the result set. */
+        offset?: components["parameters"]["PageOffset"];
+        /**
+         * The name of the field to order the results by.
+         * Prefix a field name with `-` to reverse the sort order.
+         *
+         * *New in version 2.1.0*
+         */
+        order_by?: components["parameters"]["OrderBy"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstanceCollection"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get details of all task instance tries.
+   *
+   * *New in version 2.10.0*
+   */
+  get_mapped_task_instance_tries: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+        /** The map index. */
+        map_index: components["parameters"]["MapIndex"];
+      };
+      query: {
+        /** The numbers of items to return. */
+        limit?: components["parameters"]["PageLimit"];
+        /** The number of items to skip before starting to collect the result set. */
+        offset?: components["parameters"]["PageOffset"];
+        /**
+         * The name of the field to order the results by.
+         * Prefix a field name with `-` to reverse the sort order.
+         *
+         * *New in version 2.1.0*
+         */
+        order_by?: components["parameters"]["OrderBy"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstanceCollection"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+  };
+  /**
+   * Get details of a mapped task instance try.
+   *
+   * *New in version 2.10.0*
+   */
+  get_mapped_task_instance_try_details: {
+    parameters: {
+      path: {
+        /** The DAG ID. */
+        dag_id: components["parameters"]["DAGID"];
+        /** The DAG run ID. */
+        dag_run_id: components["parameters"]["DAGRunID"];
+        /** The task ID. */
+        task_id: components["parameters"]["TaskID"];
+        /** The map index. */
+        map_index: components["parameters"]["MapIndex"];
+        /** The task try number. */
+        task_try_number: components["parameters"]["TaskTryNumber"];
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["TaskInstance"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
     };
   };
   /** The collection does not contain data. To get data, you must get a single entity. */
@@ -3980,6 +4557,15 @@ export interface operations {
          * *New in version 2.4.0*
          */
         deserialize?: boolean;
+        /**
+         * Whether to convert the XCom value to be a string. XCom values can be of Any data type.
+         *
+         * If set to true (default) the Any value will be returned as string, e.g. a Python representation
+         * of a dict. If set to false it will return the raw data as dict, list, string or whatever was stored.
+         *
+         * *New in version 2.10.0*
+         */
+        stringify?: boolean;
       };
     };
     responses: {
@@ -4098,6 +4684,10 @@ export interface operations {
         /** The DAG ID. */
         dag_id: components["parameters"]["DAGID"];
       };
+      query: {
+        /** List of field for return. */
+        fields?: components["parameters"]["ReturnFields"];
+      };
     };
     responses: {
       /** Success. */
@@ -4158,6 +4748,24 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["PermissionDenied"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  get_dag_stats: {
+    parameters: {
+      query: {
+        /** One or more DAG IDs separated by commas to filter relevant Dags. */
+        dag_ids: string;
+      };
+    };
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DagStatsCollectionSchema"];
+        };
+      };
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
     };
   };
   /** Get a source code using file token. */
@@ -4235,6 +4843,12 @@ export interface operations {
         order_by?: components["parameters"]["OrderBy"];
         /** If set, only return datasets with uris matching this pattern. */
         uri_pattern?: string;
+        /**
+         * One or more DAG IDs separated by commas to filter datasets by associated DAGs either consuming or producing.
+         *
+         * *New in version 2.9.0*
+         */
+        dag_ids?: string;
       };
     };
     responses: {
@@ -4305,6 +4919,26 @@ export interface operations {
       401: components["responses"]["Unauthenticated"];
       403: components["responses"]["PermissionDenied"];
       404: components["responses"]["NotFound"];
+    };
+  };
+  /** Create dataset event */
+  create_dataset_event: {
+    responses: {
+      /** Success. */
+      200: {
+        content: {
+          "application/json": components["schemas"]["DatasetEvent"];
+        };
+      };
+      400: components["responses"]["BadRequest"];
+      401: components["responses"]["Unauthenticated"];
+      403: components["responses"]["PermissionDenied"];
+      404: components["responses"]["NotFound"];
+    };
+    requestBody: {
+      content: {
+        "application/json": components["schemas"]["CreateDatasetEvent"];
+      };
     };
   };
   get_config: {
@@ -4397,318 +5031,6 @@ export interface operations {
       404: components["responses"]["NotFound"];
     };
   };
-  /**
-   * Get a list of roles.
-   *
-   * *New in version 2.1.0*
-   */
-  get_roles: {
-    parameters: {
-      query: {
-        /** The numbers of items to return. */
-        limit?: components["parameters"]["PageLimit"];
-        /** The number of items to skip before starting to collect the result set. */
-        offset?: components["parameters"]["PageOffset"];
-        /**
-         * The name of the field to order the results by.
-         * Prefix a field name with `-` to reverse the sort order.
-         *
-         * *New in version 2.1.0*
-         */
-        order_by?: components["parameters"]["OrderBy"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["RoleCollection"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-    };
-  };
-  /**
-   * Create a new role.
-   *
-   * *New in version 2.1.0*
-   */
-  post_role: {
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["Role"];
-        };
-      };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["Role"];
-      };
-    };
-  };
-  /**
-   * Get a role.
-   *
-   * *New in version 2.1.0*
-   */
-  get_role: {
-    parameters: {
-      path: {
-        /** The role name */
-        role_name: components["parameters"]["RoleName"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["Role"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-  };
-  /**
-   * Delete a role.
-   *
-   * *New in version 2.1.0*
-   */
-  delete_role: {
-    parameters: {
-      path: {
-        /** The role name */
-        role_name: components["parameters"]["RoleName"];
-      };
-    };
-    responses: {
-      /** Success. */
-      204: never;
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-  };
-  /**
-   * Update a role.
-   *
-   * *New in version 2.1.0*
-   */
-  patch_role: {
-    parameters: {
-      path: {
-        /** The role name */
-        role_name: components["parameters"]["RoleName"];
-      };
-      query: {
-        /**
-         * The fields to update on the resource. If absent or empty, all modifiable fields are updated.
-         * A comma-separated list of fully qualified names of fields.
-         */
-        update_mask?: components["parameters"]["UpdateMask"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["Role"];
-        };
-      };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["Role"];
-      };
-    };
-  };
-  /**
-   * Get a list of permissions.
-   *
-   * *New in version 2.1.0*
-   */
-  get_permissions: {
-    parameters: {
-      query: {
-        /** The numbers of items to return. */
-        limit?: components["parameters"]["PageLimit"];
-        /** The number of items to skip before starting to collect the result set. */
-        offset?: components["parameters"]["PageOffset"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["ActionCollection"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-    };
-  };
-  /**
-   * Get a list of users.
-   *
-   * *New in version 2.1.0*
-   */
-  get_users: {
-    parameters: {
-      query: {
-        /** The numbers of items to return. */
-        limit?: components["parameters"]["PageLimit"];
-        /** The number of items to skip before starting to collect the result set. */
-        offset?: components["parameters"]["PageOffset"];
-        /**
-         * The name of the field to order the results by.
-         * Prefix a field name with `-` to reverse the sort order.
-         *
-         * *New in version 2.1.0*
-         */
-        order_by?: components["parameters"]["OrderBy"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["UserCollection"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-    };
-  };
-  /**
-   * Create a new user with unique username and email.
-   *
-   * *New in version 2.2.0*
-   */
-  post_user: {
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["User"];
-        };
-      };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      409: components["responses"]["AlreadyExists"];
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["User"];
-      };
-    };
-  };
-  /**
-   * Get a user with a specific username.
-   *
-   * *New in version 2.1.0*
-   */
-  get_user: {
-    parameters: {
-      path: {
-        /**
-         * The username of the user.
-         *
-         * *New in version 2.1.0*
-         */
-        username: components["parameters"]["Username"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["UserCollectionItem"];
-        };
-      };
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-  };
-  /**
-   * Delete a user with a specific username.
-   *
-   * *New in version 2.2.0*
-   */
-  delete_user: {
-    parameters: {
-      path: {
-        /**
-         * The username of the user.
-         *
-         * *New in version 2.1.0*
-         */
-        username: components["parameters"]["Username"];
-      };
-    };
-    responses: {
-      /** Success. */
-      204: never;
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-  };
-  /**
-   * Update fields for a user.
-   *
-   * *New in version 2.2.0*
-   */
-  patch_user: {
-    parameters: {
-      path: {
-        /**
-         * The username of the user.
-         *
-         * *New in version 2.1.0*
-         */
-        username: components["parameters"]["Username"];
-      };
-      query: {
-        /**
-         * The fields to update on the resource. If absent or empty, all modifiable fields are updated.
-         * A comma-separated list of fully qualified names of fields.
-         */
-        update_mask?: components["parameters"]["UpdateMask"];
-      };
-    };
-    responses: {
-      /** Success. */
-      200: {
-        content: {
-          "application/json": components["schemas"]["UserCollectionItem"];
-        };
-      };
-      400: components["responses"]["BadRequest"];
-      401: components["responses"]["Unauthenticated"];
-      403: components["responses"]["PermissionDenied"];
-      404: components["responses"]["NotFound"];
-    };
-    requestBody: {
-      content: {
-        "application/json": components["schemas"]["User"];
-      };
-    };
-  };
 }
 
 export interface external {}
@@ -4746,6 +5068,15 @@ export type UpdateDagRunState = CamelCasedPropertiesDeep<
 >;
 export type DAGRunCollection = CamelCasedPropertiesDeep<
   components["schemas"]["DAGRunCollection"]
+>;
+export type DagStatsCollectionSchema = CamelCasedPropertiesDeep<
+  components["schemas"]["DagStatsCollectionSchema"]
+>;
+export type DagStatsCollectionItem = CamelCasedPropertiesDeep<
+  components["schemas"]["DagStatsCollectionItem"]
+>;
+export type DagStatsStateCollectionItem = CamelCasedPropertiesDeep<
+  components["schemas"]["DagStatsStateCollectionItem"]
 >;
 export type DagWarning = CamelCasedPropertiesDeep<
   components["schemas"]["DagWarning"]
@@ -4798,6 +5129,12 @@ export type SLAMiss = CamelCasedPropertiesDeep<
 >;
 export type Trigger = CamelCasedPropertiesDeep<
   components["schemas"]["Trigger"]
+>;
+export type TaskFailedDependency = CamelCasedPropertiesDeep<
+  components["schemas"]["TaskFailedDependency"]
+>;
+export type TaskInstanceDependencyCollection = CamelCasedPropertiesDeep<
+  components["schemas"]["TaskInstanceDependencyCollection"]
 >;
 export type Job = CamelCasedPropertiesDeep<components["schemas"]["Job"]>;
 export type TaskInstance = CamelCasedPropertiesDeep<
@@ -4876,6 +5213,15 @@ export type DatasetCollection = CamelCasedPropertiesDeep<
 export type DatasetEvent = CamelCasedPropertiesDeep<
   components["schemas"]["DatasetEvent"]
 >;
+export type CreateDatasetEvent = CamelCasedPropertiesDeep<
+  components["schemas"]["CreateDatasetEvent"]
+>;
+export type QueuedEvent = CamelCasedPropertiesDeep<
+  components["schemas"]["QueuedEvent"]
+>;
+export type QueuedEventCollection = CamelCasedPropertiesDeep<
+  components["schemas"]["QueuedEventCollection"]
+>;
 export type BasicDAGRun = CamelCasedPropertiesDeep<
   components["schemas"]["BasicDAGRun"]
 >;
@@ -4912,9 +5258,6 @@ export type ListDagRunsForm = CamelCasedPropertiesDeep<
 >;
 export type ListTaskInstanceForm = CamelCasedPropertiesDeep<
   components["schemas"]["ListTaskInstanceForm"]
->;
-export type ScheduleInterval = CamelCasedPropertiesDeep<
-  components["schemas"]["ScheduleInterval"]
 >;
 export type TimeDelta = CamelCasedPropertiesDeep<
   components["schemas"]["TimeDelta"]
@@ -4988,7 +5331,8 @@ export type PatchDagsVariables = CamelCasedPropertiesDeep<
     operations["patch_dags"]["requestBody"]["content"]["application/json"]
 >;
 export type GetDagVariables = CamelCasedPropertiesDeep<
-  operations["get_dag"]["parameters"]["path"]
+  operations["get_dag"]["parameters"]["path"] &
+    operations["get_dag"]["parameters"]["query"]
 >;
 export type DeleteDagVariables = CamelCasedPropertiesDeep<
   operations["delete_dag"]["parameters"]["path"]
@@ -5010,6 +5354,13 @@ export type SetMappedTaskInstanceNoteVariables = CamelCasedPropertiesDeep<
   operations["set_mapped_task_instance_note"]["parameters"]["path"] &
     operations["set_mapped_task_instance_note"]["requestBody"]["content"]["application/json"]
 >;
+export type GetTaskInstanceDependenciesVariables = CamelCasedPropertiesDeep<
+  operations["get_task_instance_dependencies"]["parameters"]["path"]
+>;
+export type GetMappedTaskInstanceDependenciesVariables =
+  CamelCasedPropertiesDeep<
+    operations["get_mapped_task_instance_dependencies"]["parameters"]["path"]
+  >;
 export type PostSetTaskInstancesStateVariables = CamelCasedPropertiesDeep<
   operations["post_set_task_instances_state"]["parameters"]["path"] &
     operations["post_set_task_instances_state"]["requestBody"]["content"]["application/json"]
@@ -5026,7 +5377,8 @@ export type GetDagRunsBatchVariables = CamelCasedPropertiesDeep<
   operations["get_dag_runs_batch"]["requestBody"]["content"]["application/json"]
 >;
 export type GetDagRunVariables = CamelCasedPropertiesDeep<
-  operations["get_dag_run"]["parameters"]["path"]
+  operations["get_dag_run"]["parameters"]["path"] &
+    operations["get_dag_run"]["parameters"]["query"]
 >;
 export type DeleteDagRunVariables = CamelCasedPropertiesDeep<
   operations["delete_dag_run"]["parameters"]["path"]
@@ -5045,6 +5397,33 @@ export type GetUpstreamDatasetEventsVariables = CamelCasedPropertiesDeep<
 export type SetDagRunNoteVariables = CamelCasedPropertiesDeep<
   operations["set_dag_run_note"]["parameters"]["path"] &
     operations["set_dag_run_note"]["requestBody"]["content"]["application/json"]
+>;
+export type GetDagDatasetQueuedEventVariables = CamelCasedPropertiesDeep<
+  operations["get_dag_dataset_queued_event"]["parameters"]["path"] &
+    operations["get_dag_dataset_queued_event"]["parameters"]["query"]
+>;
+export type DeleteDagDatasetQueuedEventVariables = CamelCasedPropertiesDeep<
+  operations["delete_dag_dataset_queued_event"]["parameters"]["path"] &
+    operations["delete_dag_dataset_queued_event"]["parameters"]["query"]
+>;
+export type GetDagDatasetQueuedEventsVariables = CamelCasedPropertiesDeep<
+  operations["get_dag_dataset_queued_events"]["parameters"]["path"] &
+    operations["get_dag_dataset_queued_events"]["parameters"]["query"]
+>;
+export type DeleteDagDatasetQueuedEventsVariables = CamelCasedPropertiesDeep<
+  operations["delete_dag_dataset_queued_events"]["parameters"]["path"] &
+    operations["delete_dag_dataset_queued_events"]["parameters"]["query"]
+>;
+export type ReparseDagFileVariables = CamelCasedPropertiesDeep<
+  operations["reparse_dag_file"]["parameters"]["path"]
+>;
+export type GetDatasetQueuedEventsVariables = CamelCasedPropertiesDeep<
+  operations["get_dataset_queued_events"]["parameters"]["path"] &
+    operations["get_dataset_queued_events"]["parameters"]["query"]
+>;
+export type DeleteDatasetQueuedEventsVariables = CamelCasedPropertiesDeep<
+  operations["delete_dataset_queued_events"]["parameters"]["path"] &
+    operations["delete_dataset_queued_events"]["parameters"]["query"]
 >;
 export type GetEventLogsVariables = CamelCasedPropertiesDeep<
   operations["get_event_logs"]["parameters"]["query"]
@@ -5100,6 +5479,20 @@ export type GetMappedTaskInstancesVariables = CamelCasedPropertiesDeep<
 export type GetTaskInstancesBatchVariables = CamelCasedPropertiesDeep<
   operations["get_task_instances_batch"]["requestBody"]["content"]["application/json"]
 >;
+export type GetTaskInstanceTryDetailsVariables = CamelCasedPropertiesDeep<
+  operations["get_task_instance_try_details"]["parameters"]["path"]
+>;
+export type GetTaskInstanceTriesVariables = CamelCasedPropertiesDeep<
+  operations["get_task_instance_tries"]["parameters"]["path"] &
+    operations["get_task_instance_tries"]["parameters"]["query"]
+>;
+export type GetMappedTaskInstanceTriesVariables = CamelCasedPropertiesDeep<
+  operations["get_mapped_task_instance_tries"]["parameters"]["path"] &
+    operations["get_mapped_task_instance_tries"]["parameters"]["query"]
+>;
+export type GetMappedTaskInstanceTryDetailsVariables = CamelCasedPropertiesDeep<
+  operations["get_mapped_task_instance_try_details"]["parameters"]["path"]
+>;
 export type GetVariablesVariables = CamelCasedPropertiesDeep<
   operations["get_variables"]["parameters"]["query"]
 >;
@@ -5133,7 +5526,8 @@ export type GetLogVariables = CamelCasedPropertiesDeep<
     operations["get_log"]["parameters"]["query"]
 >;
 export type GetDagDetailsVariables = CamelCasedPropertiesDeep<
-  operations["get_dag_details"]["parameters"]["path"]
+  operations["get_dag_details"]["parameters"]["path"] &
+    operations["get_dag_details"]["parameters"]["query"]
 >;
 export type GetTasksVariables = CamelCasedPropertiesDeep<
   operations["get_tasks"]["parameters"]["path"] &
@@ -5141,6 +5535,9 @@ export type GetTasksVariables = CamelCasedPropertiesDeep<
 >;
 export type GetTaskVariables = CamelCasedPropertiesDeep<
   operations["get_task"]["parameters"]["path"]
+>;
+export type GetDagStatsVariables = CamelCasedPropertiesDeep<
+  operations["get_dag_stats"]["parameters"]["query"]
 >;
 export type GetDagSourceVariables = CamelCasedPropertiesDeep<
   operations["get_dag_source"]["parameters"]["path"]
@@ -5157,6 +5554,9 @@ export type GetDatasetVariables = CamelCasedPropertiesDeep<
 export type GetDatasetEventsVariables = CamelCasedPropertiesDeep<
   operations["get_dataset_events"]["parameters"]["query"]
 >;
+export type CreateDatasetEventVariables = CamelCasedPropertiesDeep<
+  operations["create_dataset_event"]["requestBody"]["content"]["application/json"]
+>;
 export type GetConfigVariables = CamelCasedPropertiesDeep<
   operations["get_config"]["parameters"]["query"]
 >;
@@ -5165,41 +5565,4 @@ export type GetValueVariables = CamelCasedPropertiesDeep<
 >;
 export type GetPluginsVariables = CamelCasedPropertiesDeep<
   operations["get_plugins"]["parameters"]["query"]
->;
-export type GetRolesVariables = CamelCasedPropertiesDeep<
-  operations["get_roles"]["parameters"]["query"]
->;
-export type PostRoleVariables = CamelCasedPropertiesDeep<
-  operations["post_role"]["requestBody"]["content"]["application/json"]
->;
-export type GetRoleVariables = CamelCasedPropertiesDeep<
-  operations["get_role"]["parameters"]["path"]
->;
-export type DeleteRoleVariables = CamelCasedPropertiesDeep<
-  operations["delete_role"]["parameters"]["path"]
->;
-export type PatchRoleVariables = CamelCasedPropertiesDeep<
-  operations["patch_role"]["parameters"]["path"] &
-    operations["patch_role"]["parameters"]["query"] &
-    operations["patch_role"]["requestBody"]["content"]["application/json"]
->;
-export type GetPermissionsVariables = CamelCasedPropertiesDeep<
-  operations["get_permissions"]["parameters"]["query"]
->;
-export type GetUsersVariables = CamelCasedPropertiesDeep<
-  operations["get_users"]["parameters"]["query"]
->;
-export type PostUserVariables = CamelCasedPropertiesDeep<
-  operations["post_user"]["requestBody"]["content"]["application/json"]
->;
-export type GetUserVariables = CamelCasedPropertiesDeep<
-  operations["get_user"]["parameters"]["path"]
->;
-export type DeleteUserVariables = CamelCasedPropertiesDeep<
-  operations["delete_user"]["parameters"]["path"]
->;
-export type PatchUserVariables = CamelCasedPropertiesDeep<
-  operations["patch_user"]["parameters"]["path"] &
-    operations["patch_user"]["parameters"]["query"] &
-    operations["patch_user"]["requestBody"]["content"]["application/json"]
 >;

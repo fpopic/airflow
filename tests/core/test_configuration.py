@@ -41,6 +41,7 @@ from airflow.configuration import (
     run_command,
     write_default_airflow_configuration_if_needed,
 )
+from airflow.providers_manager import ProvidersManager
 from tests.test_utils.config import conf_vars
 from tests.test_utils.reset_warning_registry import reset_warning_registry
 from tests.utils.test_config import (
@@ -51,6 +52,15 @@ from tests.utils.test_config import (
 )
 
 HOME_DIR = os.path.expanduser("~")
+
+# The conf has been updated with sql_alchemy_con and deactivate_stale_dags_interval to test the
+# functionality of deprecated options support.
+conf.deprecated_options[("database", "sql_alchemy_conn")] = ("core", "sql_alchemy_conn", "2.3.0")
+conf.deprecated_options[("scheduler", "parsing_cleanup_interval")] = (
+    "scheduler",
+    "deactivate_stale_dags_interval",
+    "2.5.0",
+)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -448,6 +458,42 @@ key2 = 1.23
         assert isinstance(test_conf.getfloat("valid", "key2"), float)
         assert 1.23 == test_conf.getfloat("valid", "key2")
 
+    def test_getlist(self):
+        """Test AirflowConfigParser.getlist"""
+        test_config = """
+[empty]
+key0 = willbereplacedbymock
+
+[single]
+key1 = str
+
+[many]
+key2 = one,two,three
+
+[diffdelimiter]
+key3 = one;two;three
+"""
+        test_conf = AirflowConfigParser(default_config=test_config)
+        single = test_conf.getlist("single", "key1")
+        assert isinstance(single, list)
+        assert len(single) == 1
+        many = test_conf.getlist("many", "key2")
+        assert isinstance(many, list)
+        assert len(many) == 3
+        semicolon = test_conf.getlist("diffdelimiter", "key3", delimiter=";")
+        assert isinstance(semicolon, list)
+        assert len(semicolon) == 3
+        with patch.object(test_conf, "get", return_value=None):
+            with pytest.raises(
+                AirflowConfigException, match=re.escape("Failed to convert value None to list.")
+            ):
+                test_conf.getlist("empty", "key0")
+        with patch.object(test_conf, "get", return_value=None):
+            with pytest.raises(
+                AirflowConfigException, match=re.escape("Failed to convert value None to list.")
+            ):
+                test_conf.getlist("empty", "key0")
+
     @pytest.mark.parametrize(
         ("config_str", "expected"),
         [
@@ -596,26 +642,29 @@ AIRFLOW_HOME = /root/airflow
         assert isinstance(section_dict[key], type)
 
     def test_auth_backends_adds_session(self):
-        test_conf = AirflowConfigParser(default_config="")
-        # Guarantee we have deprecated settings, so we test the deprecation
-        # lookup even if we remove this explicit fallback
-        test_conf.deprecated_values = {
-            "api": {
-                "auth_backends": (
-                    re.compile(r"^airflow\.api\.auth\.backend\.deny_all$|^$"),
-                    "airflow.api.auth.backend.session",
-                    "3.0",
-                ),
-            },
-        }
-        test_conf.read_dict({"api": {"auth_backends": "airflow.api.auth.backend.basic_auth"}})
-
-        with pytest.warns(FutureWarning):
-            test_conf.validate()
-            assert (
-                test_conf.get("api", "auth_backends")
-                == "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+        with patch("os.environ", {"AIRFLOW__API__AUTH_BACKEND": None}):
+            test_conf = AirflowConfigParser(default_config="")
+            # Guarantee we have deprecated settings, so we test the deprecation
+            # lookup even if we remove this explicit fallback
+            test_conf.deprecated_values = {
+                "api": {
+                    "auth_backends": (
+                        re.compile(r"^airflow\.api\.auth\.backend\.deny_all$|^$"),
+                        "airflow.api.auth.backend.session",
+                        "3.0",
+                    ),
+                },
+            }
+            test_conf.read_dict(
+                {"api": {"auth_backends": "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth"}}
             )
+
+            with pytest.warns(FutureWarning):
+                test_conf.validate()
+                assert (
+                    test_conf.get("api", "auth_backends")
+                    == "airflow.providers.fab.auth_manager.api.auth.backend.basic_auth,airflow.api.auth.backend.session"
+                )
 
     def test_command_from_env(self):
         test_cmdenv_config = """[testcmdenv]
@@ -918,33 +967,6 @@ class TestDeprecatedConf:
 
     @conf_vars(
         {
-            ("logging", "logging_level"): None,
-            ("core", "logging_level"): None,
-        }
-    )
-    def test_deprecated_options_with_new_section(self):
-        # Guarantee we have a deprecated setting, so we test the deprecation
-        # lookup even if we remove this explicit fallback
-        with set_deprecated_options(
-            deprecated_options={("logging", "logging_level"): ("core", "logging_level", "2.0.0")}
-        ):
-            # Remove it so we are sure we use the right setting
-            conf.remove_option("core", "logging_level")
-            conf.remove_option("logging", "logging_level")
-
-            with pytest.warns(DeprecationWarning):
-                with mock.patch.dict("os.environ", AIRFLOW__CORE__LOGGING_LEVEL="VALUE"):
-                    assert conf.get("logging", "logging_level") == "VALUE"
-
-            with pytest.warns(FutureWarning, match="Please update your `conf.get"):
-                with mock.patch.dict("os.environ", AIRFLOW__CORE__LOGGING_LEVEL="VALUE"):
-                    assert conf.get("core", "logging_level") == "VALUE"
-
-            with pytest.warns(DeprecationWarning), conf_vars({("core", "logging_level"): "VALUE"}):
-                assert conf.get("logging", "logging_level") == "VALUE"
-
-    @conf_vars(
-        {
             ("celery", "result_backend"): None,
             ("celery", "celery_result_backend"): None,
             ("celery", "celery_result_backend_cmd"): None,
@@ -989,14 +1011,6 @@ sql_alchemy_conn=sqlite://test
     @pytest.mark.parametrize(
         "old, new",
         [
-            (
-                ("api", "auth_backend", "airflow.api.auth.backend.basic_auth"),
-                (
-                    "api",
-                    "auth_backends",
-                    "airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session",
-                ),
-            ),
             (
                 ("core", "sql_alchemy_conn", "postgres+psycopg2://localhost/postgres"),
                 ("database", "sql_alchemy_conn", "postgresql://localhost/postgres"),
@@ -1446,7 +1460,7 @@ sql_alchemy_conn=sqlite://test
             test_conf.items("scheduler")
         assert len(captured) == 1
         c = captured[0]
-        assert c.category == FutureWarning
+        assert c.category is FutureWarning
         assert (
             "you should use[scheduler/parsing_cleanup_interval] "
             "instead. Please update your `conf.get*`" in str(c.message)
@@ -1456,7 +1470,7 @@ sql_alchemy_conn=sqlite://test
                 test_conf.items("scheduler")
         assert len(captured) == 1
         c = captured[0]
-        assert c.category == DeprecationWarning
+        assert c.category is DeprecationWarning
         assert (
             "deactivate_stale_dags_interval option in [scheduler] "
             "has been renamed to parsing_cleanup_interval" in str(c.message)
@@ -1480,12 +1494,12 @@ sql_alchemy_conn=sqlite://test
 
         w = captured.pop()
         assert "the old setting has been used, but please update" in str(w.message)
-        assert w.category == DeprecationWarning
+        assert w.category is DeprecationWarning
         # only if we use old value, do we also get a warning about code update
         if key == old_val:
             w = captured.pop()
             assert "your `conf.get*` call to use the new name" in str(w.message)
-            assert w.category == FutureWarning
+            assert w.category is FutureWarning
 
     def test_as_dict_raw(self):
         test_conf = AirflowConfigParser()
@@ -1585,7 +1599,7 @@ def test_sensitive_values():
     sensitive_values = {
         ("database", "sql_alchemy_conn"),
         ("core", "fernet_key"),
-        ("smtp", "smtp_password"),
+        ("core", "internal_api_secret_key"),
         ("webserver", "secret_key"),
         ("secrets", "backend_kwargs"),
         ("sentry", "sentry_dsn"),
@@ -1595,10 +1609,13 @@ def test_sensitive_values():
         ("celery", "broker_url"),
         ("celery", "flower_basic_auth"),
         ("celery", "result_backend"),
+        ("opensearch", "username"),
+        ("opensearch", "password"),
     }
     all_keys = {(s, k) for s, v in conf.configuration_description.items() for k in v.get("options")}
     suspected_sensitive = {(s, k) for (s, k) in all_keys if k.endswith(("password", "kwargs"))}
     exclude_list = {
+        ("aws_batch_executor", "submit_job_kwargs"),
         ("kubernetes_executor", "delete_option_kwargs"),
         ("aws_ecs_executor", "run_task_kwargs"),  # Only a constrained set of values, none are sensitive
     }
@@ -1652,6 +1669,9 @@ def test_error_when_contributing_to_existing_section():
         assert conf.get("celery", "celery_app_name") == "test"
 
 
+# Technically it's not a DB test, but we want to make sure it's not interfering with xdist non-db tests
+# Because the `_cleanup` method might cause side-effect for parallel-run tests
+@pytest.mark.db_test
 class TestWriteDefaultAirflowConfigurationIfNeeded:
     @pytest.fixture(autouse=True)
     def setup_test_cases(self, tmp_path_factory):
@@ -1664,6 +1684,8 @@ class TestWriteDefaultAirflowConfigurationIfNeeded:
             self.patch_airflow_home(self.test_airflow_home)
             self.patch_airflow_config(self.test_airflow_config)
             yield
+            # make sure any side effects of "write_default_airflow_configuration_if_needed" are removed
+            ProvidersManager()._cleanup()
 
     def patch_airflow_home(self, airflow_home):
         self.monkeypatch.setattr("airflow.configuration.AIRFLOW_HOME", os.fspath(airflow_home))
@@ -1674,8 +1696,11 @@ class TestWriteDefaultAirflowConfigurationIfNeeded:
     def test_default(self):
         """Test write default config in `${AIRFLOW_HOME}/airflow.cfg`."""
         assert not self.test_airflow_config.exists()
-        write_default_airflow_configuration_if_needed()
-        assert self.test_airflow_config.exists()
+        try:
+            write_default_airflow_configuration_if_needed()
+            assert self.test_airflow_config.exists()
+        finally:
+            self.test_airflow_config.unlink()
 
     @pytest.mark.parametrize(
         "relative_to_airflow_home",

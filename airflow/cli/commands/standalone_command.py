@@ -80,6 +80,12 @@ class StandaloneCommand:
             command=["webserver"],
             env=env,
         )
+        self.subcommands["fastapi-api"] = SubCommand(
+            self,
+            name="fastapi-api",
+            command=["fastapi-api"],
+            env=env,
+        )
         self.subcommands["triggerer"] = SubCommand(
             self,
             name="triggerer",
@@ -136,6 +142,7 @@ class StandaloneCommand:
         You can pass multiple lines to output if you wish; it will be split for you.
         """
         color = {
+            "fastapi-api": "magenta",
             "webserver": "green",
             "scheduler": "blue",
             "triggerer": "cyan",
@@ -180,7 +187,7 @@ class StandaloneCommand:
         self.print_output("standalone", "Database ready")
 
         # Then create a "default" admin user if necessary
-        from airflow.auth.managers.fab.cli_commands.utils import get_application_builder
+        from airflow.providers.fab.auth_manager.cli_commands.utils import get_application_builder
 
         with get_application_builder() as appbuilder:
             user_name, password = appbuilder.sm.create_admin_standalone()

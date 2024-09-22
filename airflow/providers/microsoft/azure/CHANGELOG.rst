@@ -27,6 +27,280 @@
 Changelog
 ---------
 
+10.5.0
+......
+
+Features
+~~~~~~~~
+
+* ``Allow custom api versions in MSGraphAsyncOperator (#41331)``
+* `` Add callback to process Azure Service Bus message contents (#41601)``
+
+Misc
+~~~~
+
+* ``remove deprecated soft_fail from providers (#41710)``
+* ``Remove deprecated log handler argument filename_template (#41552)``
+
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+10.4.0
+......
+
+.. note::
+  This release of provider is only available for Airflow 2.8+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Features
+~~~~~~~~
+
+* ``Microsoft Power BI operator to refresh the dataset (#40356)``
+* ``Export Azure Container Instance log messages to XCOM (#41142)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Fix mypy checks for new azure libraries (#41386)``
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.8.0 (#41396)``
+
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+10.3.0
+......
+
+Features
+~~~~~~~~
+
+* ``Added priority to Azure Container Instances (#40616)``
+
+Misc
+~~~~
+
+* ``Bump minimum version for azure containerinstance. (#40767)``
+
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+10.2.0
+......
+
+Features
+~~~~~~~~
+
+* ``Add S3ToAzureBlobStorageOperator (#40511)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Enable enforcing pydocstyle rule D213 in ruff. (#40448)``
+
+10.1.2
+......
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Switch AzureDataLakeStorageV2Hook to use DefaultAzureCredential for managed identity/workload auth (#38497)``
+* ``BUGFIX: Make sure XComs work correctly in MSGraphAsyncOperator with paged results and dynamic task mapping (#40301)``
+
+Misc
+~~~~
+
+* ``implement per-provider tests with lowest-direct dependency resolution (#39946)``
+
+.. Review and move the new changes to one of the sections above:
+   * ``Revert "refactor: Make sure xcoms work correctly in multi-threaded environmen…" (#40300)``
+   * ``refactor: Make sure xcoms work correctly in multi-threaded environment by taking the map_index into account (#40297)``
+
+10.1.1
+......
+
+Misc
+~~~~
+
+* ``Remove unused backward compatibility _read function in WasbTaskHandler (#39827)``
+* ``Update example AzureContainerInstancesOperator (#39466)``
+
+10.1.0
+......
+
+.. note::
+  This release of provider is only available for Airflow 2.7+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Features
+~~~~~~~~
+
+* ``add dns_config and diagnostics parameters to AzureContainerInstancesOperator (#39156)``
+* ``Add stacklevel into the 'AzureSynapsePipelineHook' deprecation warnings (#39192)``
+* ``Adding MSGraphOperator in Microsoft Azure provider (#38111)``
+* ``Make handling of connection by fs/adls.py closer to that of WasbHook and add unit tests. (#38747)``
+* ``Implement run-method on KiotaRequestAdapterHook and move logic away from triggerer to hook (#39237)``
+* ``Implemented MSGraphSensor as a deferrable sensor (#39304)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Fix: Only quote the keys of the query_parameters in MSGraphOperator (#39207)``
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.7.0 (#39240)``
+* ``Reapply templates for all providers (#39554)``
+* ``Faster 'airflow_version' imports (#39552)``
+* ``Simplify 'airflow_version' imports (#39497)``
+
+.. Review and move the new changes to one of the sections above:
+   * ``Prepare docs 1st wave May 2024 (#39328)``
+
+10.0.0
+......
+
+.. warning::
+   * We bumped the minimum version of azure-cosmos to 4.6.0, and providing a partition key is now required to create, get or delete a container and to get a document.
+
+Breaking changes
+~~~~~~~~~~~~~~~~
+
+.. warning::
+   * ``azure_synapse_pipeline`` connection type has been changed to ``azure_synapse``.
+   * The usage of ``default_conn_name=azure_synapse_connection`` is deprecated and will be removed in future. The new default connection name for ``AzureSynapsePipelineHook`` is: ``default_conn_name=azure_synapse_default``.
+
+* ``Feature/refactor azure synapse pipeline class (#38723)``
+
+Features
+~~~~~~~~
+
+* ``Add 'ADLSCreateObjectOperator' (#37821)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``fix(microsoft/azure): add return statement to yield within a while loop in triggers (#38393)``
+* ``fix cosmos hook static checks by making providing partition_key mandatory (#38199)``
+
+Misc
+~~~~
+
+* ``refactor: Refactored __new__ magic method of BaseOperatorMeta to avoid bad mixing classic and decorated operators (#37937)``
+* ``update to latest service bus (#38384)``
+* ``Limit azure-cosmos (#38175)``
+
+.. Review and move the new changes to one of the sections above:
+   * ``fix: try002 for provider microsoft azure (#38805)``
+   * ``Bump ruff to 0.3.3 (#38240)``
+
+9.0.1
+.....
+
+Bug Fixes
+~~~~~~~~~
+
+* ``fix: Pass proxies config when using ClientSecretCredential in AzureDataLakeStorageV2Hook (#37103)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Add comment about versions updated by release manager (#37488)``
+   * ``D401 Support in Microsoft providers (#37327)``
+
+9.0.0
+.....
+
+Breaking changes
+~~~~~~~~~~~~~~~~
+
+.. warning::
+   In this version of the provider, ``include`` and ``delimiter`` params have been removed from
+   ``WasbPrefixSensorTrigger``. These params will now need to passed through ``check_options`` param
+
+* ``Fix WasbPrefixSensor arg inconsistency between sync and async mode (#36806)``
+* ``add WasbPrefixSensorTrigger params breaking change to azure provider changelog (#36940)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Fix failed tasks are not detected in 'AzureBatchHook' (#36785)``
+* ``Fix assignment of template field in '__init__' in 'container_instances.py' (#36529)``
+
+Misc
+~~~~
+
+* ``feat: Switch all class, functions, methods deprecations to decorators (#36876)``
+
+.. Review and move the new changes to one of the sections above:
+   * ``Revert "Provide the logger_name param in providers hooks in order to override the logger name (#36675)" (#37015)``
+   * ``Fix stacklevel in warnings.warn into the providers (#36831)``
+   * ``Standardize airflow build process and switch to Hatchling build backend (#36537)``
+   * ``Provide the logger_name param in providers hooks in order to override the logger name (#36675)``
+   * ``Prepare docs 1st wave of Providers January 2024 (#36640)``
+   * ``Speed up autocompletion of Breeze by simplifying provider state (#36499)``
+   * ``Add docs for RC2 wave of providers for 2nd round of Jan 2024 (#37019)``
+
+8.5.1
+.....
+
+Misc
+~~~~
+
+* ``Remove unused '_parse_version' function (#36450)``
+* ``Clean WASB task handler code after bumping min Airflow version to 2.6.0 (#36421)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+8.5.0
+.....
+
+Features
+~~~~~~~~
+
+* ``Allow storage options to be passed (#35820)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``azurefilesharehook fix with connection type azure (#36309)``
+* ``Follow BaseHook connection fields method signature in child classes (#36086)``
+
+Misc
+~~~~
+
+* ``Add code snippet formatting in docstrings via Ruff (#36262)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+8.4.0
+.....
+
+.. note::
+  This release of provider is only available for Airflow 2.6+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Fix reraise outside of try block in 'AzureSynapsePipelineRunLink.get_fields_from_url' (#36009)``
+* ``Do not catch too broad exception in 'WasbHook.delete_container' (#36034)``
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.6.0 (#36017)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Add feature to build "chicken-egg" packages from sources (#35890)``
+
 8.3.0
 .....
 

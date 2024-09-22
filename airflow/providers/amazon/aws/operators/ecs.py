@@ -21,23 +21,26 @@ import re
 import warnings
 from datetime import timedelta
 from functools import cached_property
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Any, Sequence
 
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
-from airflow.models import BaseOperator
 from airflow.providers.amazon.aws.exceptions import EcsOperatorError, EcsTaskFailToStart
 from airflow.providers.amazon.aws.hooks.base_aws import AwsBaseHook
 from airflow.providers.amazon.aws.hooks.ecs import EcsClusterStates, EcsHook, should_retry_eni
 from airflow.providers.amazon.aws.hooks.logs import AwsLogsHook
+from airflow.providers.amazon.aws.operators.base_aws import AwsBaseOperator
 from airflow.providers.amazon.aws.triggers.ecs import (
     ClusterActiveTrigger,
     ClusterInactiveTrigger,
     TaskDoneTrigger,
 )
+from airflow.providers.amazon.aws.utils import validate_execute_complete_event
 from airflow.providers.amazon.aws.utils.identifiers import generate_uuid
+from airflow.providers.amazon.aws.utils.mixins import aws_template_fields
 from airflow.providers.amazon.aws.utils.task_log_fetcher import AwsTaskLogFetcher
 from airflow.utils.helpers import prune_dict
+from airflow.utils.types import NOTSET
 
 if TYPE_CHECKING:
     import boto3
@@ -45,21 +48,11 @@ if TYPE_CHECKING:
     from airflow.models import TaskInstance
     from airflow.utils.context import Context
 
-DEFAULT_CONN_ID = "aws_default"
 
-
-class EcsBaseOperator(BaseOperator):
+class EcsBaseOperator(AwsBaseOperator[EcsHook]):
     """This is the base operator for all Elastic Container Service operators."""
 
-    def __init__(self, *, aws_conn_id: str | None = DEFAULT_CONN_ID, region: str | None = None, **kwargs):
-        self.aws_conn_id = aws_conn_id
-        self.region = region
-        super().__init__(**kwargs)
-
-    @cached_property
-    def hook(self) -> EcsHook:
-        """Create and return an EcsHook."""
-        return EcsHook(aws_conn_id=self.aws_conn_id, region_name=self.region)
+    aws_hook_class = EcsHook
 
     @cached_property
     def client(self) -> boto3.client:
@@ -101,7 +94,7 @@ class EcsCreateClusterOperator(EcsBaseOperator):
         (default: False)
     """
 
-    template_fields: Sequence[str] = (
+    template_fields: Sequence[str] = aws_template_fields(
         "cluster_name",
         "create_cluster_kwargs",
         "wait_for_completion",
@@ -148,7 +141,7 @@ class EcsCreateClusterOperator(EcsBaseOperator):
                     waiter_delay=self.waiter_delay,
                     waiter_max_attempts=self.waiter_max_attempts,
                     aws_conn_id=self.aws_conn_id,
-                    region_name=self.region,
+                    region_name=self.region_name,
                 ),
                 method_name="_complete_exec_with_cluster_desc",
                 # timeout is set to ensure that if a trigger dies, the timeout does not restart
@@ -225,7 +218,7 @@ class EcsDeleteClusterOperator(EcsBaseOperator):
                     waiter_delay=self.waiter_delay,
                     waiter_max_attempts=self.waiter_max_attempts,
                     aws_conn_id=self.aws_conn_id,
-                    region_name=self.region,
+                    region_name=self.region_name,
                 ),
                 method_name="_complete_exec_with_cluster_desc",
                 # timeout is set to ensure that if a trigger dies, the timeout does not restart
@@ -265,19 +258,18 @@ class EcsDeregisterTaskDefinitionOperator(EcsBaseOperator):
         self,
         *,
         task_definition: str,
+        wait_for_completion=NOTSET,
+        waiter_delay=NOTSET,
+        waiter_max_attempts=NOTSET,
         **kwargs,
     ):
-        if "wait_for_completion" in kwargs or "waiter_delay" in kwargs or "waiter_max_attempts" in kwargs:
+        if any(arg is not NOTSET for arg in [wait_for_completion, waiter_delay, waiter_max_attempts]):
             warnings.warn(
                 "'wait_for_completion' and waiter related params have no effect and are deprecated, "
                 "please remove them.",
                 AirflowProviderDeprecationWarning,
                 stacklevel=2,
             )
-            # remove args to not trigger Invalid arguments exception
-            kwargs.pop("wait_for_completion", None)
-            kwargs.pop("waiter_delay", None)
-            kwargs.pop("waiter_max_attempts", None)
 
         super().__init__(**kwargs)
         self.task_definition = task_definition
@@ -319,19 +311,18 @@ class EcsRegisterTaskDefinitionOperator(EcsBaseOperator):
         family: str,
         container_definitions: list[dict],
         register_task_kwargs: dict | None = None,
+        wait_for_completion=NOTSET,
+        waiter_delay=NOTSET,
+        waiter_max_attempts=NOTSET,
         **kwargs,
     ):
-        if "wait_for_completion" in kwargs or "waiter_delay" in kwargs or "waiter_max_attempts" in kwargs:
+        if any(arg is not NOTSET for arg in [wait_for_completion, waiter_delay, waiter_max_attempts]):
             warnings.warn(
                 "'wait_for_completion' and waiter related params have no effect and are deprecated, "
                 "please remove them.",
                 AirflowProviderDeprecationWarning,
                 stacklevel=2,
             )
-            # remove args to not trigger Invalid arguments exception
-            kwargs.pop("wait_for_completion", None)
-            kwargs.pop("waiter_delay", None)
-            kwargs.pop("waiter_max_attempts", None)
 
         super().__init__(**kwargs)
         self.family = family
@@ -382,6 +373,10 @@ class EcsRunTaskOperator(EcsBaseOperator):
         When capacity_provider_strategy is specified, the launch_type parameter is omitted.
         If no capacity_provider_strategy or launch_type is specified,
         the default capacity provider strategy for the cluster is used.
+    :param volume_configurations: the volume configurations to use when using capacity provider. The name of the volume must match
+                                  the name from the task definition.
+                                  You can configure the settings like size, volume type, IOPS, throughput and others mentioned in
+                                  (https://docs.aws.amazon.com/AmazonECS/latest/APIReference/API_TaskManagedEBSVolumeConfiguration.html)
     :param group: the name of the task group associated with the task
     :param placement_constraints: an array of placement constraint objects to use for
         the task
@@ -429,6 +424,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
         "overrides",
         "launch_type",
         "capacity_provider_strategy",
+        "volume_configurations",
         "group",
         "placement_constraints",
         "placement_strategy",
@@ -459,6 +455,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
         overrides: dict,
         launch_type: str = "EC2",
         capacity_provider_strategy: list | None = None,
+        volume_configurations: list | None = None,
         group: str | None = None,
         placement_constraints: list | None = None,
         placement_strategy: list | None = None,
@@ -488,6 +485,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
         self.overrides = overrides
         self.launch_type = launch_type
         self.capacity_provider_strategy = capacity_provider_strategy
+        self.volume_configurations = volume_configurations
         self.group = group
         self.placement_constraints = placement_constraints
         self.placement_strategy = placement_strategy
@@ -504,7 +502,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
         self.number_logs_exception = number_logs_exception
 
         if self.awslogs_region is None:
-            self.awslogs_region = self.region
+            self.awslogs_region = self.region_name
 
         self.arn: str | None = None
         self._started_by: str | None = None
@@ -555,7 +553,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
                     waiter_delay=self.waiter_delay,
                     waiter_max_attempts=self.waiter_max_attempts,
                     aws_conn_id=self.aws_conn_id,
-                    region=self.region,
+                    region=self.region_name,
                     log_group=self.awslogs_group,
                     log_stream=self._get_logs_stream_name(),
                 ),
@@ -589,14 +587,17 @@ class EcsRunTaskOperator(EcsBaseOperator):
         else:
             return None
 
-    def execute_complete(self, context, event=None):
+    def execute_complete(self, context: Context, event: dict[str, Any] | None = None) -> str | None:
+        event = validate_execute_complete_event(event)
+
         if event["status"] != "success":
             raise AirflowException(f"Error in task execution: {event}")
         self.arn = event["task_arn"]  # restore arn to its updated value, needed for next steps
+        self.cluster = event["cluster"]
         self._after_execution()
         if self._aws_logs_enabled():
             # same behavior as non-deferrable mode, return last line of logs of the task.
-            logs_client = AwsLogsHook(aws_conn_id=self.aws_conn_id, region_name=self.region).conn
+            logs_client = AwsLogsHook(aws_conn_id=self.aws_conn_id, region_name=self.region_name).conn
             one_log = logs_client.get_log_events(
                 logGroupName=self.awslogs_group,
                 logStreamName=self._get_logs_stream_name(),
@@ -605,6 +606,7 @@ class EcsRunTaskOperator(EcsBaseOperator):
             )
             if len(one_log["events"]) > 0:
                 return one_log["events"][0]["message"]
+        return None
 
     def _after_execution(self):
         self._check_success_task()
@@ -619,6 +621,8 @@ class EcsRunTaskOperator(EcsBaseOperator):
 
         if self.capacity_provider_strategy:
             run_opts["capacityProviderStrategy"] = self.capacity_provider_strategy
+            if self.volume_configurations is not None:
+                run_opts["volumeConfigurations"] = self.volume_configurations
         elif self.launch_type:
             run_opts["launchType"] = self.launch_type
         if self.platform_version is not None:

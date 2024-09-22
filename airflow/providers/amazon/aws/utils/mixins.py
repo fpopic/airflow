@@ -31,6 +31,7 @@ import warnings
 from functools import cached_property
 from typing import Any, Generic, NamedTuple, TypeVar
 
+from deprecated import deprecated
 from typing_extensions import final
 
 from airflow.compat.functools import cache
@@ -100,7 +101,8 @@ class AwsHookParams(NamedTuple):
 
 
 class AwsBaseHookMixin(Generic[AwsHookType]):
-    """Mixin class for AWS Operators, Sensors, etc.
+    """
+    Mixin class for AWS Operators, Sensors, etc.
 
     .. warning::
         Only for internal usage, this class might be changed, renamed or removed in the future
@@ -160,9 +162,12 @@ class AwsBaseHookMixin(Generic[AwsHookType]):
 
     @property
     @final
+    @deprecated(
+        reason="`region` is deprecated and will be removed in the future. Please use `region_name` instead.",
+        category=AirflowProviderDeprecationWarning,
+    )
     def region(self) -> str | None:
         """Alias for ``region_name``, used for compatibility (deprecated)."""
-        warnings.warn(REGION_MSG, AirflowProviderDeprecationWarning, stacklevel=3)
         return self.region_name
 
 

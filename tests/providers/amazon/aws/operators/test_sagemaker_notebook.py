@@ -21,7 +21,7 @@ from typing import Generator
 from unittest import mock
 
 import pytest
-from moto import mock_sagemaker
+from moto import mock_aws
 
 from airflow.providers.amazon.aws.hooks.sagemaker import SageMakerHook
 from airflow.providers.amazon.aws.operators.sagemaker import (
@@ -30,6 +30,7 @@ from airflow.providers.amazon.aws.operators.sagemaker import (
     SageMakerStartNoteBookOperator,
     SageMakerStopNotebookOperator,
 )
+from tests.providers.amazon.aws.utils.test_template_fields import validate_template_fields
 
 INSTANCE_NAME = "notebook"
 INSTANCE_TYPE = "ml.t3.medium"
@@ -38,7 +39,7 @@ ROLE_ARN = "arn:aws:iam:role/role"
 
 @pytest.fixture
 def hook() -> Generator[SageMakerHook, None, None]:
-    with mock_sagemaker():
+    with mock_aws():
         yield SageMakerHook(aws_conn_id="aws_default")
 
 
@@ -105,6 +106,15 @@ class TestSagemakerCreateNotebookOperator:
         mock_hook_conn.create_notebook_instance.assert_called_once()
         mock_hook_conn.get_waiter.assert_called_once_with("notebook_instance_in_service")
 
+    def test_template_fields(self):
+        operator = SageMakerCreateNotebookOperator(
+            task_id="task_test",
+            instance_name=INSTANCE_NAME,
+            instance_type=INSTANCE_TYPE,
+            role_arn=ROLE_ARN,
+        )
+        validate_template_fields(operator)
+
 
 class TestSageMakerStopNotebookOperator:
     @mock.patch.object(SageMakerHook, "conn")
@@ -124,6 +134,12 @@ class TestSageMakerStopNotebookOperator:
         operator.execute(None)
         hook.conn.stop_notebook_instance.assert_called_once()
         mock_hook_conn.get_waiter.assert_called_once_with("notebook_instance_stopped")
+
+    def test_template_fields(self):
+        operator = SageMakerStopNotebookOperator(
+            task_id="stop_test", instance_name=INSTANCE_NAME, wait_for_completion=False
+        )
+        validate_template_fields(operator)
 
 
 class TestSageMakerDeleteNotebookOperator:
@@ -145,6 +161,12 @@ class TestSageMakerDeleteNotebookOperator:
         hook.conn.delete_notebook_instance.assert_called_once()
         mock_hook_conn.get_waiter.assert_called_once_with("notebook_instance_deleted")
 
+    def test_template_fields(self):
+        operator = SageMakerDeleteNotebookOperator(
+            task_id="delete_test", instance_name=INSTANCE_NAME, wait_for_completion=True
+        )
+        validate_template_fields(operator)
+
 
 class TestSageMakerStartNotebookOperator:
     @mock.patch.object(SageMakerHook, "conn")
@@ -164,3 +186,9 @@ class TestSageMakerStartNotebookOperator:
         operator.execute(None)
         hook.conn.start_notebook_instance.assert_called_once()
         mock_hook_conn.get_waiter.assert_called_once_with("notebook_instance_in_service")
+
+    def test_template_fields(self):
+        operator = SageMakerStartNoteBookOperator(
+            task_id="start_test", instance_name=INSTANCE_NAME, wait_for_completion=True
+        )
+        validate_template_fields(operator)

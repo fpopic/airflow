@@ -29,13 +29,14 @@ PRODUCTION_IMAGE_TOOLS_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] =
         {
             "name": "Basic usage",
             "options": [
-                "--python",
-                "--install-airflow-version",
-                "--image-tag",
-                "--tag-as-latest",
-                "--docker-cache",
-                "--version-suffix-for-pypi",
                 "--build-progress",
+                "--docker-cache",
+                "--docker-host",
+                "--image-tag",
+                "--install-airflow-version",
+                "--python",
+                "--tag-as-latest",
+                "--version-suffix-for-pypi",
             ],
         },
         {
@@ -52,11 +53,12 @@ PRODUCTION_IMAGE_TOOLS_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] =
         {
             "name": "Advanced build options (for power users)",
             "options": [
+                "--additional-pip-install-flags",
+                "--commit-sha",
                 "--debian-version",
                 "--python-image",
-                "--commit-sha",
-                "--additional-pip-install-flags",
-                "--install-providers-from-sources",
+                "--use-uv",
+                "--uv-http-timeout",
             ],
         },
         {
@@ -91,6 +93,7 @@ PRODUCTION_IMAGE_TOOLS_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] =
                 "--installation-method",
                 "--install-airflow-reference",
                 "--install-packages-from-context",
+                "--install-mysql-client-type",
                 "--cleanup-context",
                 "--use-constraints-for-context-packages",
                 "--disable-airflow-repo-cache",
@@ -155,6 +158,17 @@ PRODUCTION_IMAGE_TOOLS_PARAMETERS: dict[str, list[dict[str, str | list[str]]]] =
                 "--slim-image",
                 "--image-tag",
                 "--pull",
+            ],
+        },
+        {
+            "name": "Parallel running",
+            "options": [
+                "--run-in-parallel",
+                "--parallelism",
+                "--python-versions",
+                "--skip-cleanup",
+                "--debug-resources",
+                "--include-success-outputs",
             ],
         },
         {

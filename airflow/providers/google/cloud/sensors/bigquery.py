@@ -16,6 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """This module contains Google BigQuery sensors."""
+
 from __future__ import annotations
 
 import warnings
@@ -23,12 +24,13 @@ from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Sequence
 
 from airflow.configuration import conf
-from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, AirflowSkipException
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
 from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook
 from airflow.providers.google.cloud.triggers.bigquery import (
     BigQueryTableExistenceTrigger,
     BigQueryTablePartitionExistenceTrigger,
 )
+from airflow.providers.google.common.deprecated import deprecated
 from airflow.sensors.base import BaseSensorOperator
 
 if TYPE_CHECKING:
@@ -132,7 +134,7 @@ class BigQueryTableExistenceSensor(BaseSensorOperator):
 
     def execute_complete(self, context: dict[str, Any], event: dict[str, str] | None = None) -> str:
         """
-        Callback for when the trigger fires - returns immediately.
+        Act as a callback for when the trigger fires - returns immediately.
 
         Relies on trigger to throw an exception, otherwise it assumes execution was successful.
         """
@@ -141,15 +143,9 @@ class BigQueryTableExistenceSensor(BaseSensorOperator):
         if event:
             if event["status"] == "success":
                 return event["message"]
-            # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
-            if self.soft_fail:
-                raise AirflowSkipException(event["message"])
             raise AirflowException(event["message"])
 
-        # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
         message = "No event received in trigger callback"
-        if self.soft_fail:
-            raise AirflowSkipException(message)
         raise AirflowException(message)
 
 
@@ -247,7 +243,7 @@ class BigQueryTablePartitionExistenceSensor(BaseSensorOperator):
 
     def execute_complete(self, context: dict[str, Any], event: dict[str, str] | None = None) -> str:
         """
-        Callback for when the trigger fires - returns immediately.
+        Act as a callback for when the trigger fires - returns immediately.
 
         Relies on trigger to throw an exception, otherwise it assumes execution was successful.
         """
@@ -257,18 +253,18 @@ class BigQueryTablePartitionExistenceSensor(BaseSensorOperator):
             if event["status"] == "success":
                 return event["message"]
 
-            # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
-            if self.soft_fail:
-                raise AirflowSkipException(event["message"])
             raise AirflowException(event["message"])
 
-        # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
         message = "No event received in trigger callback"
-        if self.soft_fail:
-            raise AirflowSkipException(message)
         raise AirflowException(message)
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="BigQueryTableExistenceSensor",
+    instructions="Please use BigQueryTableExistenceSensor and set deferrable attribute to True.",
+    category=AirflowProviderDeprecationWarning,
+)
 class BigQueryTableExistenceAsyncSensor(BigQueryTableExistenceSensor):
     """
     Checks for the existence of a table in Google Big Query.
@@ -299,16 +295,15 @@ class BigQueryTableExistenceAsyncSensor(BigQueryTableExistenceSensor):
     """
 
     def __init__(self, **kwargs):
-        warnings.warn(
-            "Class `BigQueryTableExistenceAsyncSensor` is deprecated and "
-            "will be removed in a future release. "
-            "Please use `BigQueryTableExistenceSensor` and "
-            "set `deferrable` attribute to `True` instead",
-            AirflowProviderDeprecationWarning,
-        )
         super().__init__(deferrable=True, **kwargs)
 
 
+@deprecated(
+    planned_removal_date="November 01, 2024",
+    use_instead="BigQueryTablePartitionExistenceSensor",
+    instructions="Please use BigQueryTablePartitionExistenceSensor and set deferrable attribute to True.",
+    category=AirflowProviderDeprecationWarning,
+)
 class BigQueryTableExistencePartitionAsyncSensor(BigQueryTablePartitionExistenceSensor):
     """
     Checks for the existence of a partition within a table in Google BigQuery.
@@ -340,11 +335,4 @@ class BigQueryTableExistencePartitionAsyncSensor(BigQueryTablePartitionExistence
     """
 
     def __init__(self, **kwargs):
-        warnings.warn(
-            "Class `BigQueryTableExistencePartitionAsyncSensor` is deprecated and "
-            "will be removed in a future release. "
-            "Please use `BigQueryTablePartitionExistenceSensor` and "
-            "set `deferrable` attribute to `True` instead",
-            AirflowProviderDeprecationWarning,
-        )
         super().__init__(deferrable=True, **kwargs)

@@ -22,9 +22,19 @@ description: |
   `Hadoop Distributed File System (HDFS) <https://hadoop.apache.org/docs/r1.2.1/hdfs_design.html>`__
   and `WebHDFS <https://hadoop.apache.org/docs/current/hadoop-project-dist/hadoop-hdfs/WebHDFS.html>`__.
 
-suspended: false
-source-date-epoch: 1700827436
+state: ready
+source-date-epoch: 1726860025
+# note that those versions are maintained by release manager - do not update them manually
 versions:
+  - 4.5.1
+  - 4.5.0
+  - 4.4.2
+  - 4.4.1
+  - 4.4.0
+  - 4.3.3
+  - 4.3.2
+  - 4.3.1
+  - 4.3.0
   - 4.2.0
   - 4.1.1
   - 4.1.0
@@ -45,8 +55,12 @@ versions:
   - 1.0.0
 
 dependencies:
-  - apache-airflow>=2.5.0
-  - hdfs[avro,dataframe,kerberos]>=2.0.4
+  - apache-airflow>=2.8.0
+  - hdfs[avro,dataframe,kerberos]>=2.5.4;python_version<"3.12"
+  - hdfs[avro,dataframe,kerberos]>=2.7.3;python_version>="3.12"
+  - pandas>=2.1.2,<2.2;python_version>="3.9"
+  - pandas>=1.5.3,<2.2;python_version<"3.9"
+
 
 integrations:
   - integration-name: Hadoop Distributed File System (HDFS)
@@ -69,3 +83,7 @@ hooks:
   - integration-name: WebHDFS
     python-modules:
       - airflow.providers.apache.hdfs.hooks.webhdfs
+
+connection-types:
+  - hook-class-name: airflow.providers.apache.hdfs.hooks.webhdfs.WebHDFSHook
+    connection-type: webhdfs

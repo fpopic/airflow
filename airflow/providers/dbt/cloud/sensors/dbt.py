@@ -21,8 +21,10 @@ import warnings
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
+from deprecated import deprecated
+
 from airflow.configuration import conf
-from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, AirflowSkipException
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
 from airflow.providers.dbt.cloud.hooks.dbt import DbtCloudHook, DbtCloudJobRunException, DbtCloudJobRunStatus
 from airflow.providers.dbt.cloud.triggers.dbt import DbtCloudRunJobTrigger
 from airflow.providers.dbt.cloud.utils.openlineage import generate_openlineage_events_from_dbt_cloud_run
@@ -34,7 +36,8 @@ if TYPE_CHECKING:
 
 
 class DbtCloudJobRunSensor(BaseSensorOperator):
-    """Checks the status of a dbt Cloud job run.
+    """
+    Checks the status of a dbt Cloud job run.
 
     .. seealso::
         For more information on how to use this sensor, take a look at the guide:
@@ -90,23 +93,18 @@ class DbtCloudJobRunSensor(BaseSensorOperator):
         job_run_status = self.hook.get_job_run_status(run_id=self.run_id, account_id=self.account_id)
 
         if job_run_status == DbtCloudJobRunStatus.ERROR.value:
-            # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
             message = f"Job run {self.run_id} has failed."
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise DbtCloudJobRunException(message)
 
         if job_run_status == DbtCloudJobRunStatus.CANCELLED.value:
-            # TODO: remove this if block when min_airflow_version is set to higher than 2.7.1
             message = f"Job run {self.run_id} has been cancelled."
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise DbtCloudJobRunException(message)
 
         return job_run_status == DbtCloudJobRunStatus.SUCCESS.value
 
     def execute(self, context: Context) -> None:
-        """Run the sensor.
+        """
+        Run the sensor.
 
         Depending on whether ``deferrable`` is set, this would either defer to
         the triggerer or poll for states of the job run, until the job reaches a
@@ -137,9 +135,6 @@ class DbtCloudJobRunSensor(BaseSensorOperator):
         execution was successful.
         """
         if event["status"] in ["error", "cancelled"]:
-            message = f"Error in dbt: {event['message']}"
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException()
         self.log.info(event["message"])
         return int(event["run_id"])
@@ -149,6 +144,13 @@ class DbtCloudJobRunSensor(BaseSensorOperator):
         return generate_openlineage_events_from_dbt_cloud_run(operator=self, task_instance=task_instance)
 
 
+@deprecated(
+    reason=(
+        "Class `DbtCloudJobRunAsyncSensor` is deprecated and will be removed in a future release. "
+        "Please use `DbtCloudJobRunSensor` and set `deferrable` attribute to `True` instead"
+    ),
+    category=AirflowProviderDeprecationWarning,
+)
 class DbtCloudJobRunAsyncSensor(DbtCloudJobRunSensor):
     """
     This class is deprecated.
@@ -158,10 +160,4 @@ class DbtCloudJobRunAsyncSensor(DbtCloudJobRunSensor):
     """
 
     def __init__(self, **kwargs: Any) -> None:
-        warnings.warn(
-            "Class `DbtCloudJobRunAsyncSensor` is deprecated and will be removed in a future release. "
-            "Please use `DbtCloudJobRunSensor` and set `deferrable` attribute to `True` instead",
-            AirflowProviderDeprecationWarning,
-            stacklevel=2,
-        )
         super().__init__(deferrable=True, **kwargs)

@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 class AzureSynapseRunSparkBatchOperator(BaseOperator):
     """
-    Executes a Spark job on Azure Synapse.
+    Execute a Spark job on Azure Synapse.
 
     .. see also::
         For more information on how to use this operator, take a look at the guide:
@@ -110,7 +110,7 @@ class AzureSynapseRunSparkBatchOperator(BaseOperator):
             ):
                 self.log.info("Job run %s has completed successfully.", self.job_id)
             else:
-                raise Exception(f"Job run {self.job_id} has failed or has been cancelled.")
+                raise AirflowException(f"Job run {self.job_id} has failed or has been cancelled.")
 
     def on_kill(self) -> None:
         if self.job_id:
@@ -121,13 +121,13 @@ class AzureSynapseRunSparkBatchOperator(BaseOperator):
 
 
 class AzureSynapsePipelineRunLink(BaseOperatorLink):
-    """Constructs a link to monitor a pipeline run in Azure Synapse."""
+    """Construct a link to monitor a pipeline run in Azure Synapse."""
 
     name = "Monitor Pipeline Run"
 
     def get_fields_from_url(self, workspace_url):
         """
-        Extracts the workspace_name, subscription_id and resource_group from the Synapse workspace url.
+        Extract the workspace_name, subscription_id and resource_group from the Synapse workspace url.
 
         :param workspace_url: The workspace url.
         """
@@ -138,14 +138,14 @@ class AzureSynapsePipelineRunLink(BaseOperatorLink):
         match = re.search(pattern, workspace_url)
 
         if not match:
-            raise ValueError("Invalid workspace URL format")
+            raise ValueError(f"Invalid workspace URL format, expected match pattern {pattern!r}.")
 
         extracted_text = match.group(1)
         parsed_url = urlparse(extracted_text)
         path = unquote(parsed_url.path)
         path_segments = path.split("/")
-        if len(path_segments) < 5:
-            raise
+        if (len_path_segments := len(path_segments)) < 5:
+            raise ValueError(f"Workspace expected at least 5 segments, but got {len_path_segments}.")
 
         return {
             "workspace_name": path_segments[-1],
@@ -174,7 +174,7 @@ class AzureSynapsePipelineRunLink(BaseOperatorLink):
 
 class AzureSynapseRunPipelineOperator(BaseOperator):
     """
-    Executes a Synapse Pipeline.
+    Execute a Synapse Pipeline.
 
     :param pipeline_name: The name of the pipeline to execute.
     :param azure_synapse_conn_id: The Airflow connection ID for Azure Synapse.
@@ -266,7 +266,7 @@ class AzureSynapseRunPipelineOperator(BaseOperator):
 
     def execute_complete(self, event: dict[str, str]) -> None:
         """
-        Callback for when the trigger fires - returns immediately.
+        Return immediately - callback for when the trigger fires.
 
         Relies on trigger to throw an exception, otherwise it assumes execution was successful.
         """

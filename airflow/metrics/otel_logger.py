@@ -31,10 +31,13 @@ from opentelemetry.sdk.metrics._internal.export import ConsoleMetricExporter, Pe
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 
 from airflow.configuration import conf
+from airflow.exceptions import AirflowProviderDeprecationWarning
 from airflow.metrics.protocols import Timer
 from airflow.metrics.validators import (
     OTEL_NAME_MAX_LENGTH,
-    AllowListValidator,
+    ListValidator,
+    PatternAllowListValidator,
+    get_validator,
     stat_name_otel_handler,
 )
 
@@ -68,6 +71,14 @@ UP_DOWN_COUNTERS = {"airflow.dag_processing.processes"}
 DEFAULT_METRIC_NAME_PREFIX = "airflow"
 # Delimiter is placed between the universal metric prefix and the unique metric name.
 DEFAULT_METRIC_NAME_DELIMITER = "."
+
+metrics_consistency_on = conf.getboolean("metrics", "metrics_consistency_on", fallback=True)
+if not metrics_consistency_on:
+    warnings.warn(
+        "Timer and timing metrics publish in seconds were deprecated. It is enabled by default from Airflow 3 onwards. Enable metrics consistency to publish all the timer and timing metrics in milliseconds.",
+        AirflowProviderDeprecationWarning,
+        stacklevel=2,
+    )
 
 
 def full_name(name: str, *, prefix: str = DEFAULT_METRIC_NAME_PREFIX) -> str:
@@ -124,7 +135,9 @@ def _get_otel_safe_name(name: str) -> str:
     if name != otel_safe_name:
         warnings.warn(
             f"Metric name `{name}` exceeds OpenTelemetry's name length limit of "
-            f"{OTEL_NAME_MAX_LENGTH} characters and will be truncated to `{otel_safe_name}`."
+            f"{OTEL_NAME_MAX_LENGTH} characters and will be truncated to `{otel_safe_name}`.",
+            category=UserWarning,
+            stacklevel=2,
         )
     return otel_safe_name
 
@@ -166,11 +179,11 @@ class SafeOtelLogger:
         self,
         otel_provider,
         prefix: str = DEFAULT_METRIC_NAME_PREFIX,
-        allow_list_validator=AllowListValidator(),
+        metrics_validator: ListValidator = PatternAllowListValidator(),
     ):
         self.otel: Callable = otel_provider
         self.prefix: str = prefix
-        self.metrics_validator = allow_list_validator
+        self.metrics_validator = metrics_validator
         self.meter = otel_provider.get_meter(__name__)
         self.metrics_map = MetricsMap(self.meter)
 
@@ -270,7 +283,10 @@ class SafeOtelLogger:
         """OTel does not have a native timer, stored as a Gauge whose value is number of seconds elapsed."""
         if self.metrics_validator.test(stat) and name_is_otel_safe(self.prefix, stat):
             if isinstance(dt, datetime.timedelta):
-                dt = dt.total_seconds()
+                if metrics_consistency_on:
+                    dt = dt.total_seconds() * 1000.0
+                else:
+                    dt = dt.total_seconds()
             self.metrics_map.set_gauge_value(full_name(prefix=self.prefix, name=stat), float(dt), False, tags)
 
     def timer(
@@ -303,7 +319,7 @@ class MetricsMap:
         else:
             counter = self.meter.create_counter(name=otel_safe_name)
 
-        logging.debug("Created %s as type: %s", otel_safe_name, _type_as_str(counter))
+        log.debug("Created %s as type: %s", otel_safe_name, _type_as_str(counter))
         return counter
 
     def get_counter(self, name: str, attributes: Attributes = None):
@@ -393,15 +409,12 @@ def get_otel_logger(cls) -> SafeOtelLogger:
     interval = conf.getint("metrics", "otel_interval_milliseconds", fallback=None)  # ex: 30000
     debug = conf.getboolean("metrics", "otel_debugging_on")
 
-    allow_list = conf.get("metrics", "metrics_allow_list", fallback=None)
-    allow_list_validator = AllowListValidator(allow_list)
-
     resource = Resource(attributes={SERVICE_NAME: "Airflow"})
 
     protocol = "https" if ssl_active else "http"
     endpoint = f"{protocol}://{host}:{port}/v1/metrics"
 
-    logging.info("[Metric Exporter] Connecting to OpenTelemetry Collector at %s", endpoint)
+    log.info("[Metric Exporter] Connecting to OpenTelemetry Collector at %s", endpoint)
     readers = [
         PeriodicExportingMetricReader(
             OTLPMetricExporter(
@@ -424,4 +437,4 @@ def get_otel_logger(cls) -> SafeOtelLogger:
         ),
     )
 
-    return SafeOtelLogger(metrics.get_meter_provider(), prefix, allow_list_validator)
+    return SafeOtelLogger(metrics.get_meter_provider(), prefix, get_validator())

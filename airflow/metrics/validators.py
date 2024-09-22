@@ -41,8 +41,6 @@ class MetricNameLengthExemptionWarning(Warning):
     Using a custom Warning class allows us to easily test that it is used.
     """
 
-    ...
-
 
 # Only characters in the character set are considered valid
 # for the stat_name if stat_name_default_handler is used.
@@ -85,6 +83,31 @@ BACK_COMPAT_METRIC_NAME_PATTERNS: set[str] = {
 BACK_COMPAT_METRIC_NAMES: set[Pattern[str]] = {re2.compile(name) for name in BACK_COMPAT_METRIC_NAME_PATTERNS}
 
 OTEL_NAME_MAX_LENGTH = 63
+DEFAULT_VALIDATOR_TYPE = "allow"
+
+
+def get_validator() -> ListValidator:
+    validators = {
+        "allow": PatternAllowListValidator,
+        "block": PatternBlockListValidator,
+    }
+    metric_lists = {
+        "allow": (metric_allow_list := conf.get("metrics", "metrics_allow_list", fallback=None)),
+        "block": (metric_block_list := conf.get("metrics", "metrics_block_list", fallback=None)),
+    }
+
+    if metric_allow_list:
+        list_type = "allow"
+        if metric_block_list:
+            log.warning(
+                "Ignoring metrics_block_list as both metrics_allow_list and metrics_block_list have been set."
+            )
+    elif metric_block_list:
+        list_type = "block"
+    else:
+        list_type = DEFAULT_VALIDATOR_TYPE
+
+    return validators[list_type](metric_lists[list_type])
 
 
 def validate_stat(fn: Callable) -> Callable:
@@ -162,6 +185,7 @@ def stat_name_otel_handler(
             f"This stat name will be deprecated in the future and replaced with "
             f"a shorter name combined with Attributes/Tags.",
             MetricNameLengthExemptionWarning,
+            stacklevel=2,
         )
 
     return proposed_stat_name
@@ -221,22 +245,28 @@ class ListValidator(metaclass=abc.ABCMeta):
         """Test if name is allowed."""
         raise NotImplementedError
 
+    def _has_pattern_match(self, name: str) -> bool:
+        for entry in self.validate_list or ():
+            if re2.findall(entry, name.strip().lower()):
+                return True
+        return False
 
-class AllowListValidator(ListValidator):
-    """AllowListValidator only allows names that match the allowed prefixes."""
+
+class PatternAllowListValidator(ListValidator):
+    """Match the provided strings anywhere in the metric name."""
 
     def test(self, name: str) -> bool:
         if self.validate_list is not None:
-            return name.strip().lower().startswith(self.validate_list)
+            return super()._has_pattern_match(name)
         else:
             return True  # default is all metrics are allowed
 
 
-class BlockListValidator(ListValidator):
-    """BlockListValidator only allows names that do not match the blocked prefixes."""
+class PatternBlockListValidator(ListValidator):
+    """Only allow names that do not match the blocked strings."""
 
     def test(self, name: str) -> bool:
         if self.validate_list is not None:
-            return not name.strip().lower().startswith(self.validate_list)
+            return not super()._has_pattern_match(name)
         else:
             return True  # default is all metrics are allowed

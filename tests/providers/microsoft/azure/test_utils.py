@@ -29,6 +29,7 @@ from airflow.providers.microsoft.azure.utils import (
     get_field,
     # _get_default_azure_credential
     get_sync_default_azure_credential,
+    parse_blob_account_url,
 )
 
 MODULE = "airflow.providers.microsoft.azure.utils"
@@ -71,13 +72,17 @@ def test_get_field_non_prefixed(input, expected):
 
 
 def test_add_managed_identity_connection_widgets():
-    def test_func() -> dict[str, Any]:
-        return {}
+    class FakeHook:
+        @classmethod
+        @add_managed_identity_connection_widgets
+        def test_class_method(cls) -> dict[str, Any]:
+            return {"foo": "bar"}
 
-    widgets = add_managed_identity_connection_widgets(test_func)()
+    widgets = FakeHook.test_class_method()
 
     assert "managed_identity_client_id" in widgets
     assert "workload_identity_tenant_id" in widgets
+    assert widgets["foo"] == "bar"
 
 
 @mock.patch(f"{MODULE}.DefaultAzureCredential")
@@ -127,3 +132,30 @@ class TestAzureIdentityCredentialAdapter:
 
         adapter.signed_session()
         assert adapter.token == {"access_token": "token"}
+
+
+@pytest.mark.parametrize(
+    "host, login, expected_url",
+    [
+        (None, None, "https://None.blob.core.windows.net/"),  # to maintain existing behaviour
+        (None, "storage_account", "https://storage_account.blob.core.windows.net/"),
+        ("testaccountname.blob.core.windows.net", None, "https://testaccountname.blob.core.windows.net"),
+        (
+            "testaccountname.blob.core.windows.net",
+            "service_principal_id",
+            "https://testaccountname.blob.core.windows.net",
+        ),
+        (
+            "https://testaccountname.blob.core.windows.net",
+            None,
+            "https://testaccountname.blob.core.windows.net",
+        ),
+        (
+            "https://testaccountname.blob.core.windows.net",
+            "service_principal_id",
+            "https://testaccountname.blob.core.windows.net",
+        ),
+    ],
+)
+def test_parse_blob_account_url(host, login, expected_url):
+    assert parse_blob_account_url(host, login) == expected_url

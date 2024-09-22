@@ -40,8 +40,9 @@ from setproctitle import setproctitle
 from sqlalchemy import select
 
 import airflow.settings as settings
+from airflow.api_internal.internal_api_call import InternalApiConfig
 from airflow.configuration import conf
-from airflow.exceptions import AirflowException, RemovedInAirflow3Warning
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, AirflowTaskTimeout
 from airflow.executors.base_executor import BaseExecutor
 from airflow.stats import Stats
 from airflow.utils.dag_parsing_context import _airflow_parsing_context_manager
@@ -88,7 +89,8 @@ def _get_celery_app() -> Celery:
             "Change it to `airflow.providers.celery.executors.celery_executor`, and "
             "update the `-app` flag in your Celery Health Checks "
             "to use `airflow.providers.celery.executors.celery_executor.app`.",
-            RemovedInAirflow3Warning,
+            AirflowProviderDeprecationWarning,
+            stacklevel=2,
         )
 
     return Celery(celery_app_name, config_source=celery_configuration)
@@ -110,8 +112,7 @@ def on_celery_import_modules(*args, **kwargs):
     import airflow.jobs.local_task_job_runner
     import airflow.macros
     import airflow.operators.bash
-    import airflow.operators.python
-    import airflow.operators.subdag  # noqa: F401
+    import airflow.operators.python  # noqa: F401
 
     with contextlib.suppress(ImportError):
         import numpy  # noqa: F401
@@ -145,7 +146,7 @@ def _execute_in_fork(command_to_exec: CommandType, celery_task_id: str | None = 
         if ret == 0:
             return
 
-        msg = f"Celery command failed on host: {get_hostname()} with celery_task_id {celery_task_id}"
+        msg = f"Celery command failed on host: {get_hostname()} with celery_task_id {celery_task_id} (PID: {pid}, Return Code: {ret})"
         raise AirflowException(msg)
 
     from airflow.sentry import Sentry
@@ -154,8 +155,9 @@ def _execute_in_fork(command_to_exec: CommandType, celery_task_id: str | None = 
     try:
         from airflow.cli.cli_parser import get_parser
 
-        settings.engine.pool.dispose()
-        settings.engine.dispose()
+        if not InternalApiConfig.get_use_internal_api():
+            settings.engine.pool.dispose()
+            settings.engine.dispose()
 
         parser = get_parser()
         # [1:] - remove "airflow" from the start of the command
@@ -165,14 +167,19 @@ def _execute_in_fork(command_to_exec: CommandType, celery_task_id: str | None = 
             args.external_executor_id = celery_task_id
 
         setproctitle(f"airflow task supervisor: {command_to_exec}")
+        log.debug("calling func '%s' with args %s", args.func.__name__, args)
         args.func(args)
         ret = 0
     except Exception:
         log.exception("[%s] Failed to execute task.", celery_task_id)
         ret = 1
     finally:
-        Sentry.flush()
-        logging.shutdown()
+        try:
+            Sentry.flush()
+            logging.shutdown()
+        except Exception:
+            log.exception("[%s] Failed to clean up.", celery_task_id)
+            ret = 1
         os._exit(ret)
 
 
@@ -197,7 +204,7 @@ class ExceptionWithTraceback:
     :param exception_traceback: The stacktrace to wrap
     """
 
-    def __init__(self, exception: Exception, exception_traceback: str):
+    def __init__(self, exception: BaseException, exception_traceback: str):
         self.exception = exception
         self.traceback = exception_traceback
 
@@ -210,7 +217,7 @@ def send_task_to_executor(
     try:
         with timeout(seconds=OPERATION_TIMEOUT):
             result = task_to_run.apply_async(args=[command], queue=queue)
-    except Exception as e:
+    except (Exception, AirflowTaskTimeout) as e:
         exception_traceback = f"Celery Task ID: {key}\n{traceback.format_exc()}"
         result = ExceptionWithTraceback(e, exception_traceback)
 
@@ -320,7 +327,8 @@ class BulkStateFetcher(LoggingMixin):
             for task_id, state_or_exception, info in task_id_to_states_and_info:
                 if isinstance(state_or_exception, ExceptionWithTraceback):
                     self.log.error(
-                        CELERY_FETCH_ERR_MSG_HEADER + ":%s\n%s\n",
+                        "%s:%s\n%s\n",
+                        CELERY_FETCH_ERR_MSG_HEADER,
                         state_or_exception.exception,
                         state_or_exception.traceback,
                     )

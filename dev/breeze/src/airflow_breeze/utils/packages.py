@@ -37,8 +37,8 @@ from airflow_breeze.utils.console import get_console
 from airflow_breeze.utils.path_utils import (
     AIRFLOW_PROVIDERS_ROOT,
     BREEZE_SOURCES_ROOT,
-    DIST_DIR,
     DOCS_ROOT,
+    GENERATED_PROVIDER_PACKAGES_DIR,
     PROVIDER_DEPENDENCIES_JSON_FILE_PATH,
 )
 from airflow_breeze.utils.publish_docs_helpers import (
@@ -48,24 +48,10 @@ from airflow_breeze.utils.publish_docs_helpers import (
 from airflow_breeze.utils.run_utils import run_command
 from airflow_breeze.utils.versions import get_version_tag, strip_leading_zeros_from_version
 
-MIN_AIRFLOW_VERSION = "2.5.0"
+MIN_AIRFLOW_VERSION = "2.8.0"
 HTTPS_REMOTE = "apache-https-for-providers"
 
 LONG_PROVIDERS_PREFIX = "apache-airflow-providers-"
-
-# TODO: use single source of truth for those
-# for now we need to keep them in sync with the ones in setup.py
-PREINSTALLED_PROVIDERS = [
-    #   Until we cut off the 2.8.0 branch and bump current airflow version to 2.9.0, we should
-    #   Keep common.io commented out in order ot be able to generate PyPI constraints because
-    #   The version from PyPI has requirement of apache-airflow>=2.8.0
-    #   "common.io",
-    "common.sql",
-    "ftp",
-    "http",
-    "imap",
-    "sqlite",
-]
 
 
 class EntityType(Enum):
@@ -136,16 +122,23 @@ PROVIDER_METADATA: dict[str, dict[str, Any]] = {}
 
 
 def refresh_provider_metadata_from_yaml_file(provider_yaml_path: Path):
-    import jsonschema
     import yaml
 
     schema = _load_schema()
     with open(provider_yaml_path) as yaml_file:
         provider = yaml.safe_load(yaml_file)
     try:
-        jsonschema.validate(provider, schema=schema)
-    except jsonschema.ValidationError:
-        raise Exception(f"Unable to parse: {provider_yaml_path}.")
+        import jsonschema
+
+        try:
+            jsonschema.validate(provider, schema=schema)
+        except jsonschema.ValidationError as ex:
+            msg = f"Unable to parse: {provider_yaml_path}. Original error {type(ex).__name__}: {ex}"
+            raise RuntimeError(msg)
+    except ImportError:
+        # we only validate the schema if jsonschema is available. This is needed for autocomplete
+        # to not fail with import error if jsonschema is not installed
+        pass
     PROVIDER_METADATA[get_short_package_name(provider["package-name"])] = provider
 
 
@@ -154,6 +147,12 @@ def refresh_provider_metadata_with_provider_id(provider_id: str):
     refresh_provider_metadata_from_yaml_file(provider_yaml_path)
 
 
+def clear_cache_for_provider_metadata(provider_id: str):
+    get_provider_packages_metadata.cache_clear()
+    refresh_provider_metadata_with_provider_id(provider_id)
+
+
+@lru_cache(maxsize=1)
 def get_provider_packages_metadata() -> dict[str, dict[str, Any]]:
     """
     Load all data from providers files
@@ -183,12 +182,12 @@ def validate_provider_info_with_runtime_schema(provider_info: dict[str, Any]) ->
     try:
         jsonschema.validate(provider_info, schema=schema)
     except jsonschema.ValidationError as ex:
-        get_console().print("[red]Provider info not validated against runtime schema[/]")
-        raise Exception(
-            "Error when validating schema. The schema must be compatible with "
-            "airflow/provider_info.schema.json.",
-            ex,
+        get_console().print(
+            "[red]Error when validating schema. The schema must be compatible with "
+            "[bold]'airflow/provider_info.schema.json'[/bold].\n"
+            f"Original exception [bold]{type(ex).__name__}: {ex}[/]"
         )
+        raise SystemExit(1)
 
 
 def get_provider_info_dict(provider_id: str) -> dict[str, Any]:
@@ -205,11 +204,7 @@ def get_provider_info_dict(provider_id: str) -> dict[str, Any]:
 
 @lru_cache
 def get_suspended_provider_ids() -> list[str]:
-    return [
-        provider_id
-        for provider_id, provider_metadata in get_provider_packages_metadata().items()
-        if provider_metadata.get("suspended", False)
-    ]
+    return get_available_packages(include_suspended=True, include_regular=False)
 
 
 @lru_cache
@@ -218,12 +213,28 @@ def get_suspended_provider_folders() -> list[str]:
 
 
 @lru_cache
-def get_removed_provider_ids() -> list[str]:
+def get_excluded_provider_ids(python_version: str) -> list[str]:
+    metadata = get_provider_packages_metadata()
     return [
         provider_id
-        for provider_id, provider_metadata in get_provider_packages_metadata().items()
-        if provider_metadata.get("removed", False)
+        for provider_id, provider_metadata in metadata.items()
+        if python_version in provider_metadata.get("excluded-python-versions", [])
     ]
+
+
+@lru_cache
+def get_excluded_provider_folders(python_version: str) -> list[str]:
+    return [provider_id.replace(".", "/") for provider_id in get_excluded_provider_ids(python_version)]
+
+
+@lru_cache
+def get_removed_provider_ids() -> list[str]:
+    return get_available_packages(include_removed=True, include_regular=False)
+
+
+@lru_cache
+def get_not_ready_provider_ids() -> list[str]:
+    return get_available_packages(include_not_ready=True, include_regular=False)
 
 
 def get_provider_requirements(provider_id: str) -> list[str]:
@@ -233,32 +244,59 @@ def get_provider_requirements(provider_id: str) -> list[str]:
 
 @lru_cache
 def get_available_packages(
-    include_non_provider_doc_packages: bool = False, include_all_providers: bool = False
+    include_non_provider_doc_packages: bool = False,
+    include_all_providers: bool = False,
+    include_suspended: bool = False,
+    include_removed: bool = False,
+    include_not_ready: bool = False,
+    include_regular: bool = True,
 ) -> list[str]:
     """
     Return provider ids for all packages that are available currently (not suspended).
 
-    :rtype: object
+    :param include_suspended: whether the suspended packages should be included
+    :param include_removed: whether the removed packages should be included
+    :param include_not_ready: whether the not-ready packages should be included
+    :param include_regular: whether the regular packages should be included
     :param include_non_provider_doc_packages: whether the non-provider doc packages should be included
            (packages like apache-airflow, helm-chart, docker-stack)
     :param include_all_providers: whether "all-providers" should be included ni the list.
 
     """
-    provider_ids: list[str] = list(json.loads(PROVIDER_DEPENDENCIES_JSON_FILE_PATH.read_text()).keys())
-    available_packages = []
+    provider_dependencies = json.loads(PROVIDER_DEPENDENCIES_JSON_FILE_PATH.read_text())
+
+    valid_states = set()
+    if include_not_ready:
+        valid_states.add("not-ready")
+    if include_regular:
+        valid_states.update({"ready", "pre-release"})
+    if include_suspended:
+        valid_states.add("suspended")
+    if include_removed:
+        valid_states.add("removed")
+    available_packages: list[str] = [
+        provider_id
+        for provider_id, provider_dependencies in provider_dependencies.items()
+        if provider_dependencies["state"] in valid_states
+    ]
     if include_non_provider_doc_packages:
         available_packages.extend(REGULAR_DOC_PACKAGES)
     if include_all_providers:
         available_packages.append("all-providers")
-    available_packages.extend(provider_ids)
-    return available_packages
+    return sorted(set(available_packages))
 
 
-def expand_all_provider_packages(short_doc_packages: tuple[str, ...]) -> tuple[str, ...]:
+def expand_all_provider_packages(
+    short_doc_packages: tuple[str, ...],
+    include_removed: bool = False,
+    include_not_ready: bool = False,
+) -> tuple[str, ...]:
     """In case there are "all-providers" in the list, expand the list with all providers."""
     if "all-providers" in short_doc_packages:
         packages = [package for package in short_doc_packages if package != "all-providers"]
-        packages.extend(get_available_packages())
+        packages.extend(
+            get_available_packages(include_removed=include_removed, include_not_ready=include_not_ready)
+        )
         short_doc_packages = tuple(set(packages))
     return short_doc_packages
 
@@ -292,7 +330,7 @@ def get_short_package_name(long_form_provider: str) -> str:
     else:
         if not long_form_provider.startswith(LONG_PROVIDERS_PREFIX):
             raise ValueError(
-                f"Invalid provider name: {long_form_provider}. " f"Should start with {LONG_PROVIDERS_PREFIX}"
+                f"Invalid provider name: {long_form_provider}. Should start with {LONG_PROVIDERS_PREFIX}"
             )
         return long_form_provider[len(LONG_PROVIDERS_PREFIX) :].replace("-", ".")
 
@@ -351,7 +389,7 @@ def get_documentation_package_path(provider_id: str) -> Path:
 
 
 def get_target_root_for_copied_provider_sources(provider_id: str) -> Path:
-    return (DIST_DIR / "provider_packages").joinpath(*provider_id.split("."))
+    return GENERATED_PROVIDER_PACKAGES_DIR.joinpath(*provider_id.split("."))
 
 
 def get_pip_package_name(provider_id: str) -> str:
@@ -364,7 +402,7 @@ def get_pip_package_name(provider_id: str) -> str:
     return "apache-airflow-providers-" + provider_id.replace(".", "-")
 
 
-def get_wheel_package_name(provider_id: str) -> str:
+def get_dist_package_name_prefix(provider_id: str) -> str:
     """
     Returns Wheel package name prefix for the package id.
 
@@ -372,6 +410,31 @@ def get_wheel_package_name(provider_id: str) -> str:
     :return: the name of wheel package prefix
     """
     return "apache_airflow_providers_" + provider_id.replace(".", "_")
+
+
+def apply_version_suffix(install_clause: str, version_suffix: str) -> str:
+    if install_clause.startswith("apache-airflow") and ">=" in install_clause and version_suffix:
+        # Applies version suffix to the apache-airflow and provider package dependencies to make
+        # sure that pre-release versions have correct limits - this address the issue with how
+        # pip handles pre-release versions when packages are pre-release and refer to each other - we
+        # need to make sure that all our >= references for all apache-airflow packages in pre-release
+        # versions of providers contain the same suffix as the provider itself.
+        # For example `apache-airflow-providers-fab==2.0.0.dev0` should refer to
+        # `apache-airflow>=2.9.0.dev0` and not `apache-airflow>=2.9.0` because both packages are
+        # released together and >= 2.9.0 is not correct reference for 2.9.0.dev0 version of Airflow.
+        prefix, version = install_clause.split(">=")
+        # If version has a upper limit (e.g. ">=2.10.0,<3.0"), we need to cut this off not to fail
+        if "," in version:
+            version = version.split(",")[0]
+        from packaging.version import Version
+
+        base_version = Version(version).base_version
+        # always use `pre-release`+ `0` as the version suffix
+        version_suffix = version_suffix.rstrip("0123456789") + "0"
+
+        target_version = Version(str(base_version) + "." + version_suffix)
+        return prefix + ">=" + str(target_version)
+    return install_clause
 
 
 def get_install_requirements(provider_id: str, version_suffix: str) -> str:
@@ -383,27 +446,17 @@ def get_install_requirements(provider_id: str, version_suffix: str) -> str:
 
     :return: install requirements of the package
     """
-
-    def apply_version_suffix(install_clause: str) -> str:
-        if install_clause.startswith("apache-airflow") and ">=" in install_clause and version_suffix != "":
-            # This is workaround for `pip` way of handling `--pre` installation switch. It apparently does
-            # not modify the meaning of `install_requires` to include also pre-releases, so we need to
-            # modify our internal provider and airflow package version references to include all pre-releases
-            # including all development releases. When you specify dependency as >= X.Y.Z, and you
-            # have packages X.Y.Zdev0 or X.Y.Zrc1 in a local file, such package is not considered
-            # as fulfilling the requirement even if `--pre` switch is used.
-            return install_clause + ".dev0"
-        return install_clause
-
     if provider_id in get_removed_provider_ids():
         dependencies = get_provider_requirements(provider_id)
     else:
         dependencies = PROVIDER_DEPENDENCIES.get(provider_id)["deps"]
-    install_requires = [apply_version_suffix(clause) for clause in dependencies]
+    install_requires = [
+        apply_version_suffix(clause, version_suffix).replace('"', '\\"') for clause in dependencies
+    ]
     return "".join(f'\n    "{ir}",' for ir in install_requires)
 
 
-def get_package_extras(provider_id: str) -> dict[str, list[str]]:
+def get_package_extras(provider_id: str, version_suffix: str) -> dict[str, list[str]]:
     """
     Finds extras for the package specified.
 
@@ -435,6 +488,8 @@ def get_package_extras(provider_id: str) -> dict[str, list[str]]:
                     extras_dict[name].append(new_dependency)
             else:
                 extras_dict[name] = dependencies
+    for extra, dependencies in extras_dict.items():
+        extras_dict[extra] = [apply_version_suffix(clause, version_suffix) for clause in dependencies]
     return extras_dict
 
 
@@ -466,7 +521,7 @@ def get_provider_details(provider_id: str) -> ProviderPackageDetails:
         versions=provider_info["versions"],
         excluded_python_versions=provider_info.get("excluded-python-versions") or [],
         plugins=plugins,
-        removed=provider_info.get("removed", False),
+        removed=provider_info["state"] == "removed",
     )
 
 
@@ -478,6 +533,9 @@ def get_min_airflow_version(provider_id: str) -> str:
     for dependency in provider_details.dependencies:
         if dependency.startswith("apache-airflow>="):
             current_min_airflow_version = dependency.split(">=")[1]
+            # If version has a upper limit (e.g. ">=2.10.0,<3.0"), we need to cut this off not to fail
+            if "," in current_min_airflow_version:
+                current_min_airflow_version = current_min_airflow_version.split(",")[0]
             if PackagingVersion(current_min_airflow_version) > PackagingVersion(MIN_AIRFLOW_VERSION):
                 min_airflow_version = current_min_airflow_version
     return min_airflow_version
@@ -539,7 +597,7 @@ def get_provider_jinja_context(
     context: dict[str, Any] = {
         "PROVIDER_ID": provider_details.provider_id,
         "PACKAGE_PIP_NAME": get_pip_package_name(provider_details.provider_id),
-        "PACKAGE_WHEEL_NAME": get_wheel_package_name(provider_details.provider_id),
+        "PACKAGE_DIST_PREFIX": get_dist_package_name_prefix(provider_details.provider_id),
         "FULL_PACKAGE_NAME": provider_details.full_package_name,
         "RELEASE": current_release_version,
         "RELEASE_NO_LEADING_ZEROS": release_version_no_leading_zeros,
@@ -549,7 +607,9 @@ def get_provider_jinja_context(
         "INSTALL_REQUIREMENTS": get_install_requirements(
             provider_id=provider_details.provider_id, version_suffix=version_suffix
         ),
-        "EXTRAS_REQUIREMENTS": get_package_extras(provider_id=provider_details.provider_id),
+        "EXTRAS_REQUIREMENTS": get_package_extras(
+            provider_id=provider_details.provider_id, version_suffix=version_suffix
+        ),
         "CHANGELOG_RELATIVE_PATH": os.path.relpath(
             provider_details.source_provider_package_path,
             provider_details.documentation_provider_package_path,
@@ -633,7 +693,7 @@ def make_sure_remote_apache_exists_and_fetch(github_repository: str = "apache/ai
             )
         else:
             get_console().print(
-                f"[error]Error {ex}[/]\n" f"[error]When checking if {HTTPS_REMOTE} is set.[/]\n\n"
+                f"[error]Error {ex}[/]\n[error]When checking if {HTTPS_REMOTE} is set.[/]\n\n"
             )
             sys.exit(1)
     get_console().print("[info]Fetching full history and tags from remote.")

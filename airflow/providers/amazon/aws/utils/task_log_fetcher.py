@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Generator
 
@@ -59,8 +59,20 @@ class AwsTaskLogFetcher(Thread):
         while not self.is_stopped():
             time.sleep(self.fetch_interval.total_seconds())
             log_events = self._get_log_events(continuation_token)
+            prev_timestamp_event = None
             for log_event in log_events:
+                current_timestamp_event = datetime.fromtimestamp(
+                    log_event["timestamp"] / 1000.0, tz=timezone.utc
+                )
+                if current_timestamp_event == prev_timestamp_event:
+                    # When multiple events have the same timestamp, somehow, only one event is logged
+                    # As a consequence, some logs are missed in the log group (in case they have the same
+                    # timestamp)
+                    # When a slight delay is added before logging the event, that solves the issue
+                    # See https://github.com/apache/airflow/issues/40875
+                    time.sleep(0.1)
                 self.logger.info(self.event_to_str(log_event))
+                prev_timestamp_event = current_timestamp_event
 
     def _get_log_events(self, skip_token: AwsLogsHook.ContinuationToken | None = None) -> Generator:
         if skip_token is None:
@@ -87,7 +99,7 @@ class AwsTaskLogFetcher(Thread):
 
     @staticmethod
     def event_to_str(event: dict) -> str:
-        event_dt = datetime.utcfromtimestamp(event["timestamp"] / 1000.0)
+        event_dt = datetime.fromtimestamp(event["timestamp"] / 1000.0, tz=timezone.utc)
         formatted_event_dt = event_dt.strftime("%Y-%m-%d %H:%M:%S,%f")[:-3]
         message = event["message"]
         return f"[{formatted_event_dt}] {message}"

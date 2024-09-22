@@ -23,23 +23,22 @@ import os
 from unittest import mock
 
 import boto3
-import moto
 import pytest
 from botocore.exceptions import ClientError
+from moto import mock_aws
 
 from airflow.models import DAG, DagRun, TaskInstance
 from airflow.operators.empty import EmptyOperator
 from airflow.providers.amazon.aws.hooks.s3 import S3Hook
 from airflow.providers.amazon.aws.log.s3_task_handler import S3TaskHandler
-from airflow.utils.session import create_session
 from airflow.utils.state import State, TaskInstanceState
 from airflow.utils.timezone import datetime
 from tests.test_utils.config import conf_vars
 
 
-@pytest.fixture(autouse=True, scope="module")
+@pytest.fixture(autouse=True)
 def s3mock():
-    with moto.mock_s3():
+    with mock_aws():
         yield
 
 
@@ -47,7 +46,7 @@ def s3mock():
 class TestS3TaskHandler:
     @conf_vars({("logging", "remote_log_conn_id"): "aws_default"})
     @pytest.fixture(autouse=True)
-    def setup_tests(self, create_log_template, tmp_path_factory):
+    def setup_tests(self, create_log_template, tmp_path_factory, session):
         self.remote_log_base = "s3://bucket/remote/log/location"
         self.remote_log_location = "s3://bucket/remote/log/location/1.log"
         self.remote_log_key = "remote/log/location/1.log"
@@ -58,32 +57,27 @@ class TestS3TaskHandler:
         assert self.s3_task_handler.hook is not None
 
         date = datetime(2016, 1, 1)
-        self.dag = DAG("dag_for_testing_s3_task_handler", start_date=date)
+        self.dag = DAG("dag_for_testing_s3_task_handler", schedule=None, start_date=date)
         task = EmptyOperator(task_id="task_for_testing_s3_log_handler", dag=self.dag)
         dag_run = DagRun(dag_id=self.dag.dag_id, execution_date=date, run_id="test", run_type="manual")
-        with create_session() as session:
-            session.add(dag_run)
-            session.commit()
-            session.refresh(dag_run)
+        session.add(dag_run)
+        session.commit()
+        session.refresh(dag_run)
 
         self.ti = TaskInstance(task=task, run_id=dag_run.run_id)
         self.ti.dag_run = dag_run
         self.ti.try_number = 1
         self.ti.state = State.RUNNING
+        session.add(self.ti)
+        session.commit()
 
         self.conn = boto3.client("s3")
-        # We need to create the bucket since this is all in Moto's 'virtual'
-        # AWS account
-        moto.moto_api._internal.models.moto_api_backend.reset()
         self.conn.create_bucket(Bucket="bucket")
-
         yield
 
         self.dag.clear()
 
-        with create_session() as session:
-            session.query(DagRun).delete()
-
+        session.query(DagRun).delete()
         if self.s3_task_handler.handler:
             with contextlib.suppress(Exception):
                 os.remove(self.s3_task_handler.handler.baseFilename)
@@ -103,10 +97,11 @@ class TestS3TaskHandler:
         assert not self.s3_task_handler.s3_log_exists("s3://nonexistentbucket/foo")
 
     def test_log_exists_no_hook(self):
-        with mock.patch("airflow.providers.amazon.aws.hooks.s3.S3Hook") as mock_hook:
-            mock_hook.side_effect = Exception("Failed to connect")
-            with pytest.raises(Exception):
-                self.s3_task_handler.s3_log_exists(self.remote_log_location)
+        handler = S3TaskHandler(self.local_log_location, self.remote_log_base)
+        with mock.patch.object(S3Hook, "__init__", spec=S3Hook) as mock_hook:
+            mock_hook.side_effect = ConnectionError("Fake: Failed to connect")
+            with pytest.raises(ConnectionError, match="Fake: Failed to connect"):
+                handler.s3_log_exists(self.remote_log_location)
 
     def test_set_context_raw(self):
         self.ti.raw = True
@@ -147,33 +142,6 @@ class TestS3TaskHandler:
         expected = "*** No logs found on s3 for ti=<TaskInstance: dag_for_testing_s3_task_handler.task_for_testing_s3_log_handler test [success]>\n"
         assert actual == expected
         assert {"end_of_log": True, "log_pos": 0} == metadata[0]
-
-    def test_read_when_s3_log_missing_and_log_pos_missing_pre_26(self):
-        ti = copy.copy(self.ti)
-        ti.state = TaskInstanceState.SUCCESS
-        # mock that super class has no _read_remote_logs method
-        with mock.patch("airflow.providers.amazon.aws.log.s3_task_handler.hasattr", return_value=False):
-            log, metadata = self.s3_task_handler.read(ti)
-        assert 1 == len(log)
-        assert log[0][0][-1].startswith("*** Falling back to local log")
-
-    def test_read_when_s3_log_missing_and_log_pos_zero_pre_26(self):
-        ti = copy.copy(self.ti)
-        ti.state = TaskInstanceState.SUCCESS
-        # mock that super class has no _read_remote_logs method
-        with mock.patch("airflow.providers.amazon.aws.log.s3_task_handler.hasattr", return_value=False):
-            log, metadata = self.s3_task_handler.read(ti, metadata={"log_pos": 0})
-        assert 1 == len(log)
-        assert log[0][0][-1].startswith("*** Falling back to local log")
-
-    def test_read_when_s3_log_missing_and_log_pos_over_zero_pre_26(self):
-        ti = copy.copy(self.ti)
-        ti.state = TaskInstanceState.SUCCESS
-        # mock that super class has no _read_remote_logs method
-        with mock.patch("airflow.providers.amazon.aws.log.s3_task_handler.hasattr", return_value=False):
-            log, metadata = self.s3_task_handler.read(ti, metadata={"log_pos": 1})
-        assert 1 == len(log)
-        assert not log[0][0][-1].startswith("*** Falling back to local log")
 
     def test_s3_read_when_log_missing(self):
         handler = self.s3_task_handler
@@ -240,15 +208,11 @@ class TestS3TaskHandler:
             boto3.resource("s3").Object("bucket", self.remote_log_key).get()
 
     @pytest.mark.parametrize(
-        "delete_local_copy, expected_existence_of_local_copy, airflow_version",
-        [(True, False, "2.6.0"), (False, True, "2.6.0"), (True, True, "2.5.0"), (False, True, "2.5.0")],
+        "delete_local_copy, expected_existence_of_local_copy",
+        [(True, False), (False, True)],
     )
-    def test_close_with_delete_local_logs_conf(
-        self, delete_local_copy, expected_existence_of_local_copy, airflow_version
-    ):
-        with conf_vars({("logging", "delete_local_logs"): str(delete_local_copy)}), mock.patch(
-            "airflow.version.version", airflow_version
-        ):
+    def test_close_with_delete_local_logs_conf(self, delete_local_copy, expected_existence_of_local_copy):
+        with conf_vars({("logging", "delete_local_logs"): str(delete_local_copy)}):
             handler = S3TaskHandler(self.local_log_location, self.remote_log_base)
 
         handler.log.info("test")
@@ -257,3 +221,7 @@ class TestS3TaskHandler:
 
         handler.close()
         assert os.path.exists(handler.handler.baseFilename) == expected_existence_of_local_copy
+
+    def test_filename_template_for_backward_compatibility(self):
+        # filename_template arg support for running the latest provider on airflow 2
+        S3TaskHandler(self.local_log_location, self.remote_log_base, filename_template=None)

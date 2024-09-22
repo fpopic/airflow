@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Useful tools for running commands."""
+
 from __future__ import annotations
 
 import atexit
@@ -27,19 +28,22 @@ import signal
 import stat
 import subprocess
 import sys
-from distutils.version import StrictVersion
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping, Union
 
 from rich.markup import escape
 
-from airflow_breeze.branch_defaults import AIRFLOW_BRANCH
-from airflow_breeze.global_constants import APACHE_AIRFLOW_GITHUB_REPOSITORY
 from airflow_breeze.utils.ci_group import ci_group
 from airflow_breeze.utils.console import Output, get_console
 from airflow_breeze.utils.path_utils import (
     AIRFLOW_SOURCES_ROOT,
+    UI_ASSET_COMPILE_LOCK,
+    UI_ASSET_HASH_FILE,
+    UI_ASSET_OUT_DEV_MODE_FILE,
+    UI_ASSET_OUT_FILE,
+    UI_DIST_DIR,
+    UI_NODE_MODULES_DIR,
     WWW_ASSET_COMPILE_LOCK,
     WWW_ASSET_HASH_FILE,
     WWW_ASSET_OUT_DEV_MODE_FILE,
@@ -152,7 +156,7 @@ def run_command(
         if get_dry_run(dry_run_override):
             return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
         try:
-            if output_outside_the_group:
+            if output_outside_the_group and os.environ.get("GITHUB_ACTIONS") == "true":
                 get_console().print("::endgroup::")
             return subprocess.run(cmd, input=input, check=check, env=cmd_env, cwd=workdir, **kwargs)
         except subprocess.CalledProcessError as ex:
@@ -206,6 +210,7 @@ def assert_pre_commit_installed():
     """
     # Local import to make autocomplete work
     import yaml
+    from packaging.version import Version
 
     pre_commit_config = yaml.safe_load((AIRFLOW_SOURCES_ROOT / ".pre-commit-config.yaml").read_text())
     min_pre_commit_version = pre_commit_config["minimum_pre_commit_version"]
@@ -221,7 +226,7 @@ def assert_pre_commit_installed():
     if command_result.returncode == 0:
         if command_result.stdout:
             pre_commit_version = command_result.stdout.split(" ")[-1].strip()
-            if StrictVersion(pre_commit_version) >= StrictVersion(min_pre_commit_version):
+            if Version(pre_commit_version) >= Version(min_pre_commit_version):
                 get_console().print(
                     f"\n[success]Package pre_commit is installed. "
                     f"Good version {pre_commit_version} (>= {min_pre_commit_version})[/]\n"
@@ -367,11 +372,6 @@ def commit_sha():
         return "COMMIT_SHA_NOT_FOUND"
 
 
-def filter_out_none(**kwargs) -> dict:
-    """Filters out all None values from parameters passed."""
-    return {key: val for key, val in kwargs.items() if val is not None}
-
-
 def check_if_image_exists(image: str) -> bool:
     cmd_result = run_command(
         ["docker", "inspect", image],
@@ -382,29 +382,9 @@ def check_if_image_exists(image: str) -> bool:
     return cmd_result.returncode == 0
 
 
-def get_ci_image_for_pre_commits() -> str:
-    github_repository = os.environ.get("GITHUB_REPOSITORY", APACHE_AIRFLOW_GITHUB_REPOSITORY)
-    python_version = "3.8"
-    airflow_image = f"ghcr.io/{github_repository}/{AIRFLOW_BRANCH}/ci/python{python_version}"
-    skip_image_pre_commits = os.environ.get("SKIP_IMAGE_PRE_COMMITS", "false")
-    if skip_image_pre_commits[0].lower() == "t":
-        get_console().print(
-            f"[info]Skipping image check as SKIP_IMAGE_PRE_COMMITS is set to {skip_image_pre_commits}[/]"
-        )
-        sys.exit(0)
-    if not check_if_image_exists(
-        image=airflow_image,
-    ):
-        get_console().print(f"[red]The image {airflow_image} is not available.[/]\n")
-        get_console().print(
-            f"\n[yellow]Please run this to fix it:[/]\n\n"
-            f"breeze ci-image build --python {python_version}\n\n"
-        )
-        sys.exit(1)
-    return airflow_image
-
-
-def _run_compile_internally(command_to_execute: list[str], dev: bool) -> RunCommandResult:
+def _run_compile_internally(
+    command_to_execute: list[str], dev: bool, compile_lock: Path, asset_out: Path
+) -> RunCommandResult:
     from filelock import SoftFileLock, Timeout
 
     env = os.environ.copy()
@@ -417,11 +397,11 @@ def _run_compile_internally(command_to_execute: list[str], dev: bool) -> RunComm
             env=env,
         )
     else:
-        WWW_ASSET_COMPILE_LOCK.parent.mkdir(parents=True, exist_ok=True)
-        WWW_ASSET_COMPILE_LOCK.unlink(missing_ok=True)
+        compile_lock.parent.mkdir(parents=True, exist_ok=True)
+        compile_lock.unlink(missing_ok=True)
         try:
-            with SoftFileLock(WWW_ASSET_COMPILE_LOCK, timeout=5):
-                with open(WWW_ASSET_OUT_FILE, "w") as output_file:
+            with SoftFileLock(compile_lock, timeout=5):
+                with open(asset_out, "w") as output_file:
                     result = run_command(
                         command_to_execute,
                         check=False,
@@ -432,13 +412,13 @@ def _run_compile_internally(command_to_execute: list[str], dev: bool) -> RunComm
                         stdout=output_file,
                     )
                 if result.returncode == 0:
-                    WWW_ASSET_OUT_FILE.unlink(missing_ok=True)
+                    asset_out.unlink(missing_ok=True)
                 return result
         except Timeout:
             get_console().print("[error]Another asset compilation is running. Exiting[/]\n")
             get_console().print("[warning]If you are sure there is no other compilation,[/]")
             get_console().print("[warning]Remove the lock file and re-run compilation:[/]")
-            get_console().print(WWW_ASSET_COMPILE_LOCK)
+            get_console().print(compile_lock)
             get_console().print()
             sys.exit(1)
 
@@ -502,7 +482,60 @@ def run_compile_www_assets(
             if os.getpid() != os.getsid(0):
                 # and create a new process group where we are the leader
                 os.setpgid(0, 0)
-            _run_compile_internally(command_to_execute, dev)
+            _run_compile_internally(command_to_execute, dev, WWW_ASSET_COMPILE_LOCK, WWW_ASSET_OUT_FILE)
             sys.exit(0)
     else:
-        return _run_compile_internally(command_to_execute, dev)
+        return _run_compile_internally(command_to_execute, dev, WWW_ASSET_COMPILE_LOCK, WWW_ASSET_OUT_FILE)
+
+
+def clean_ui_assets():
+    get_console().print("[info]Cleaning ui assets[/]")
+    UI_ASSET_HASH_FILE.unlink(missing_ok=True)
+    shutil.rmtree(UI_NODE_MODULES_DIR, ignore_errors=True)
+    shutil.rmtree(UI_DIST_DIR, ignore_errors=True)
+    get_console().print("[success]Cleaned ui assets[/]")
+
+
+def run_compile_ui_assets(
+    dev: bool,
+    run_in_background: bool,
+    force_clean: bool,
+):
+    if force_clean:
+        clean_ui_assets()
+    if dev:
+        get_console().print("\n[warning] The command below will run forever until you press Ctrl-C[/]\n")
+        get_console().print(
+            "\n[info]If you want to see output of the compilation command,\n"
+            "[info]cancel it, go to airflow/ui folder and run 'pnpm dev'.\n"
+            "[info]However, it requires you to have local pnpm installation.\n"
+        )
+    command_to_execute = [
+        sys.executable,
+        "-m",
+        "pre_commit",
+        "run",
+        "--hook-stage",
+        "manual",
+        "compile-ui-assets-dev" if dev else "compile-ui-assets",
+        "--all-files",
+        "--verbose",
+    ]
+    get_console().print(
+        "[info]The output of the asset compilation is stored in: [/]"
+        f"{UI_ASSET_OUT_DEV_MODE_FILE if dev else UI_ASSET_OUT_FILE}\n"
+    )
+    if run_in_background:
+        pid = os.fork()
+        if pid:
+            # Parent process - send signal to process group of the child process
+            atexit.register(kill_process_group, pid)
+        else:
+            # Check if we are not a group leader already (We should not be)
+            if os.getpid() != os.getsid(0):
+                # and create a new process group where we are the leader
+                os.setpgid(0, 0)
+            _run_compile_internally(command_to_execute, dev, UI_ASSET_COMPILE_LOCK, UI_ASSET_OUT_FILE)
+            sys.exit(0)
+    else:
+        return _run_compile_internally(command_to_execute, dev, UI_ASSET_COMPILE_LOCK, UI_ASSET_OUT_FILE)

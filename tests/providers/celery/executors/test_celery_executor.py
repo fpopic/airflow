@@ -22,7 +22,7 @@ import logging
 import os
 import signal
 import sys
-from datetime import datetime, timedelta
+from datetime import timedelta
 from unittest import mock
 
 # leave this it is used by the test worker
@@ -42,6 +42,7 @@ from airflow.providers.celery.executors.celery_executor import CeleryExecutor
 from airflow.utils import timezone
 from airflow.utils.state import State
 from tests.test_utils import db
+from tests.test_utils.compat import AIRFLOW_V_2_10_PLUS
 from tests.test_utils.config import conf_vars
 
 pytestmark = pytest.mark.db_test
@@ -75,7 +76,7 @@ def _prepare_app(broker_url=None, execute=None):
     test_config.update({"broker_url": broker_url})
     test_app = Celery(broker_url, config_source=test_config)
     test_execute = test_app.task(execute)
-    patch_app = mock.patch("airflow.providers.celery.executors.celery_executor.app", test_app)
+    patch_app = mock.patch("airflow.providers.celery.executors.celery_executor_utils.app", test_app)
     patch_execute = mock.patch(
         "airflow.providers.celery.executors.celery_executor_utils.execute_command", test_execute
     )
@@ -183,9 +184,9 @@ class TestCeleryExecutor:
 
     @pytest.mark.backend("mysql", "postgres")
     def test_try_adopt_task_instances_none(self):
-        start_date = datetime.utcnow() - timedelta(days=2)
+        start_date = timezone.utcnow() - timedelta(days=2)
 
-        with DAG("test_try_adopt_task_instances_none"):
+        with DAG("test_try_adopt_task_instances_none", schedule=None):
             task_1 = BaseOperator(task_id="task_1", start_date=start_date)
 
         key1 = TaskInstance(task=task_1, run_id=None)
@@ -200,9 +201,7 @@ class TestCeleryExecutor:
     def test_try_adopt_task_instances(self):
         start_date = timezone.utcnow() - timedelta(days=2)
 
-        try_number = 1
-
-        with DAG("test_try_adopt_task_instances_none") as dag:
+        with DAG("test_try_adopt_task_instances_none", schedule=None) as dag:
             task_1 = BaseOperator(task_id="task_1", start_date=start_date)
             task_2 = BaseOperator(task_id="task_2", start_date=start_date)
 
@@ -221,8 +220,8 @@ class TestCeleryExecutor:
 
         not_adopted_tis = executor.try_adopt_task_instances(tis)
 
-        key_1 = TaskInstanceKey(dag.dag_id, task_1.task_id, None, try_number)
-        key_2 = TaskInstanceKey(dag.dag_id, task_2.task_id, None, try_number)
+        key_1 = TaskInstanceKey(dag.dag_id, task_1.task_id, None, 0 if AIRFLOW_V_2_10_PLUS else 1)
+        key_2 = TaskInstanceKey(dag.dag_id, task_2.task_id, None, 0 if AIRFLOW_V_2_10_PLUS else 1)
         assert executor.running == {key_1, key_2}
 
         assert executor.tasks == {key_1: AsyncResult("231"), key_2: AsyncResult("232")}
@@ -239,7 +238,7 @@ class TestCeleryExecutor:
     def test_cleanup_stuck_queued_tasks(self, mock_fail):
         start_date = timezone.utcnow() - timedelta(days=2)
 
-        with DAG("test_cleanup_stuck_queued_tasks_failed"):
+        with DAG("test_cleanup_stuck_queued_tasks_failed", schedule=None):
             task = BaseOperator(task_id="task_1", start_date=start_date)
 
         ti = TaskInstance(task=task, run_id=None)
@@ -250,7 +249,6 @@ class TestCeleryExecutor:
         tis = [ti]
         with _prepare_app() as app:
             app.control.revoke = mock.MagicMock()
-
             executor = celery_executor.CeleryExecutor()
             executor.job_id = 1
             executor.running = {ti.key}
@@ -258,8 +256,8 @@ class TestCeleryExecutor:
             executor.cleanup_stuck_queued_tasks(tis)
             executor.sync()
         assert executor.tasks == {}
-        assert app.control.revoke.called_with("231")
-        assert mock_fail.called_once()
+        app.control.revoke.assert_called_once_with("231")
+        mock_fail.assert_called_once()
 
     @conf_vars({("celery", "result_backend_sqlalchemy_engine_options"): '{"pool_recycle": 1800}'})
     @mock.patch("celery.Celery")
@@ -347,3 +345,23 @@ def test_celery_executor_with_no_recommended_result_backend(caplog):
             "You have configured a result_backend using the protocol `rediss`,"
             " it is highly recommended to use an alternative result_backend (i.e. a database)."
         ) in caplog.text
+
+
+@conf_vars({("celery_broker_transport_options", "sentinel_kwargs"): '{"service_name": "mymaster"}'})
+def test_sentinel_kwargs_loaded_from_string():
+    import importlib
+
+    # reload celery conf to apply the new config
+    importlib.reload(default_celery)
+    assert default_celery.DEFAULT_CELERY_CONFIG["broker_transport_options"]["sentinel_kwargs"] == {
+        "service_name": "mymaster"
+    }
+
+
+@conf_vars({("celery", "task_acks_late"): "False"})
+def test_celery_task_acks_late_loaded_from_string():
+    import importlib
+
+    # reload celery conf to apply the new config
+    importlib.reload(default_celery)
+    assert default_celery.DEFAULT_CELERY_CONFIG["task_acks_late"] is False

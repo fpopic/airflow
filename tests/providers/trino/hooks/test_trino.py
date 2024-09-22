@@ -37,11 +37,11 @@ JWT_AUTHENTICATION = "airflow.providers.trino.hooks.trino.trino.auth.JWTAuthenti
 CERT_AUTHENTICATION = "airflow.providers.trino.hooks.trino.trino.auth.CertificateAuthentication"
 
 
-@pytest.fixture()
+@pytest.fixture
 def jwt_token_file(tmp_path):
     jwt_file = tmp_path / "jwt.json"
     jwt_file.write_text('{"phony":"jwt"}')
-    yield jwt_file.__fspath__()
+    return jwt_file.__fspath__()
 
 
 class TestTrinoHookConn:
@@ -227,7 +227,7 @@ class TestTrinoHookConn:
             ("False", False),
             ("false", False),
             ("true", True),
-            ("true", True),
+            ("True", True),
             ("/tmp/cert.crt", "/tmp/cert.crt"),
         ],
     )
@@ -239,6 +239,14 @@ class TestTrinoHookConn:
         TrinoHook().get_conn()
         self.assert_connection_called_with(mock_connect, verify=expected_verify)
 
+    @patch(HOOK_GET_CONNECTION)
+    @patch(TRINO_DBAPI_CONNECT)
+    def test_get_conn_timezone(self, mock_connect, mock_get_connection):
+        extras = {"timezone": "Asia/Jerusalem"}
+        self.set_get_connection_return_value(mock_get_connection, extra=json.dumps(extras))
+        TrinoHook().get_conn()
+        self.assert_connection_called_with(mock_connect, timezone="Asia/Jerusalem")
+
     @staticmethod
     def set_get_connection_return_value(mock_get_connection, extra=None, password=None):
         mocked_connection = Connection(
@@ -248,7 +256,13 @@ class TestTrinoHookConn:
 
     @staticmethod
     def assert_connection_called_with(
-        mock_connect, http_headers=mock.ANY, auth=None, verify=True, session_properties=None, client_tags=None
+        mock_connect,
+        http_headers=mock.ANY,
+        auth=None,
+        verify=True,
+        session_properties=None,
+        client_tags=None,
+        timezone=None,
     ):
         mock_connect.assert_called_once_with(
             catalog="hive",
@@ -264,6 +278,7 @@ class TestTrinoHookConn:
             verify=verify,
             session_properties=session_properties,
             client_tags=client_tags,
+            timezone=timezone,
         )
 
 

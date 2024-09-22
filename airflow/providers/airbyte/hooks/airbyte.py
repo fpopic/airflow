@@ -18,13 +18,19 @@
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, TypeVar
+
+from airbyte_api import AirbyteAPI
+from airbyte_api.api import CancelJobRequest, GetJobRequest
+from airbyte_api.models import JobCreateRequest, JobStatusEnum, JobTypeEnum, SchemeClientCredentials, Security
 
 from airflow.exceptions import AirflowException
-from airflow.providers.http.hooks.http import HttpHook
+from airflow.hooks.base import BaseHook
+
+T = TypeVar("T", bound=Any)
 
 
-class AirbyteHook(HttpHook):
+class AirbyteHook(BaseHook):
     """
     Hook for Airbyte API.
 
@@ -38,17 +44,78 @@ class AirbyteHook(HttpHook):
     conn_type = "airbyte"
     hook_name = "Airbyte"
 
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    CANCELLED = "cancelled"
-    PENDING = "pending"
-    FAILED = "failed"
-    ERROR = "error"
-    INCOMPLETE = "incomplete"
-
-    def __init__(self, airbyte_conn_id: str = "airbyte_default", api_version: str = "v1") -> None:
-        super().__init__(http_conn_id=airbyte_conn_id)
+    def __init__(
+        self,
+        airbyte_conn_id: str = "airbyte_default",
+        api_version: str = "v1",
+    ) -> None:
+        super().__init__()
         self.api_version: str = api_version
+        self.airbyte_conn_id = airbyte_conn_id
+        self.conn = self.get_conn_params(self.airbyte_conn_id)
+        self.airbyte_api = self.create_api_session()
+
+    def get_conn_params(self, conn_id: str) -> Any:
+        conn = self.get_connection(conn_id)
+
+        conn_params: dict = {}
+        conn_params["host"] = conn.host
+        conn_params["client_id"] = conn.login
+        conn_params["client_secret"] = conn.password
+        conn_params["token_url"] = conn.schema or "v1/applications/token"
+
+        return conn_params
+
+    def create_api_session(self) -> AirbyteAPI:
+        """Create Airbyte API session."""
+        credentials = SchemeClientCredentials(
+            client_id=self.conn["client_id"],
+            client_secret=self.conn["client_secret"],
+            token_url=self.conn["token_url"],
+        )
+
+        return AirbyteAPI(
+            server_url=self.conn["host"],
+            security=Security(client_credentials=credentials),
+        )
+
+    @classmethod
+    def get_ui_field_behaviour(cls) -> dict[str, Any]:
+        """Return custom field behaviour."""
+        return {
+            "hidden_fields": [
+                "extra",
+                "port",
+            ],
+            "relabeling": {"login": "Client ID", "password": "Client Secret", "schema": "Token URL"},
+            "placeholders": {},
+        }
+
+    def get_job_details(self, job_id: int) -> Any:
+        """
+        Use Http async call to retrieve metadata for a specific job of an Airbyte Sync.
+
+        :param job_id: The ID of an Airbyte Sync Job.
+        """
+        try:
+            get_job_res = self.airbyte_api.jobs.get_job(
+                request=GetJobRequest(
+                    job_id=job_id,
+                )
+            )
+            return get_job_res.job_response
+        except Exception as e:
+            raise AirflowException(e)
+
+    def get_job_status(self, job_id: int) -> str:
+        """
+        Retrieve the status for a specific job of an Airbyte Sync.
+
+        :param job_id: The ID of an Airbyte Sync Job.
+        """
+        self.log.info("Getting the status of job run %s.", job_id)
+        response = self.get_job_details(job_id=job_id)
+        return response.status
 
     def wait_for_job(self, job_id: str | int, wait_seconds: float = 3, timeout: float | None = 3600) -> None:
         """
@@ -63,49 +130,39 @@ class AirbyteHook(HttpHook):
         start = time.monotonic()
         while True:
             if timeout and start + timeout < time.monotonic():
+                self.cancel_job(job_id=(int(job_id)))
                 raise AirflowException(f"Timeout: Airbyte job {job_id} is not ready after {timeout}s")
             time.sleep(wait_seconds)
             try:
-                job = self.get_job(job_id=(int(job_id)))
-                state = job.json()["job"]["status"]
+                job = self.get_job_details(job_id=(int(job_id)))
+                state = job.status
+
             except AirflowException as err:
                 self.log.info("Retrying. Airbyte API returned server error when waiting for job: %s", err)
                 continue
 
-            if state in (self.RUNNING, self.PENDING, self.INCOMPLETE):
+            if state in (JobStatusEnum.RUNNING, JobStatusEnum.PENDING, JobStatusEnum.INCOMPLETE):
                 continue
-            if state == self.SUCCEEDED:
+            if state == JobStatusEnum.SUCCEEDED:
                 break
-            if state == self.ERROR:
+            if state == JobStatusEnum.FAILED:
                 raise AirflowException(f"Job failed:\n{job}")
-            elif state == self.CANCELLED:
+            elif state == JobStatusEnum.CANCELLED:
                 raise AirflowException(f"Job was cancelled:\n{job}")
             else:
-                raise Exception(f"Encountered unexpected state `{state}` for job_id `{job_id}`")
+                raise AirflowException(f"Encountered unexpected state `{state}` for job_id `{job_id}`")
 
     def submit_sync_connection(self, connection_id: str) -> Any:
-        """
-        Submit a job to a Airbyte server.
-
-        :param connection_id: Required. The ConnectionId of the Airbyte Connection.
-        """
-        return self.run(
-            endpoint=f"api/{self.api_version}/connections/sync",
-            json={"connectionId": connection_id},
-            headers={"accept": "application/json"},
-        )
-
-    def get_job(self, job_id: int) -> Any:
-        """
-        Get the resource representation for a job in Airbyte.
-
-        :param job_id: Required. Id of the Airbyte job
-        """
-        return self.run(
-            endpoint=f"api/{self.api_version}/jobs/get",
-            json={"id": job_id},
-            headers={"accept": "application/json"},
-        )
+        try:
+            res = self.airbyte_api.jobs.create_job(
+                request=JobCreateRequest(
+                    connection_id=connection_id,
+                    job_type=JobTypeEnum.SYNC,
+                )
+            )
+            return res.job_response
+        except Exception as e:
+            raise AirflowException(e)
 
     def cancel_job(self, job_id: int) -> Any:
         """
@@ -113,27 +170,23 @@ class AirbyteHook(HttpHook):
 
         :param job_id: Required. Id of the Airbyte job
         """
-        return self.run(
-            endpoint=f"api/{self.api_version}/jobs/cancel",
-            json={"id": job_id},
-            headers={"accept": "application/json"},
-        )
+        try:
+            cancel_job_res = self.airbyte_api.jobs.cancel_job(
+                request=CancelJobRequest(
+                    job_id=job_id,
+                )
+            )
+            return cancel_job_res.job_response
+        except Exception as e:
+            raise AirflowException(e)
 
     def test_connection(self):
         """Tests the Airbyte connection by hitting the health API."""
-        self.method = "GET"
         try:
-            res = self.run(
-                endpoint=f"api/{self.api_version}/health",
-                headers={"accept": "application/json"},
-                extra_options={"check_response": False},
-            )
-
-            if res.status_code == 200:
+            health_check = self.airbyte_api.health.get_health_check()
+            if health_check.status_code == 200:
                 return True, "Connection successfully tested"
             else:
-                return False, res.text
+                return False, str(health_check.raw_response)
         except Exception as e:
             return False, str(e)
-        finally:
-            self.method = "POST"

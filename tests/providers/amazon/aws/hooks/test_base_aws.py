@@ -36,7 +36,7 @@ from botocore.config import Config
 from botocore.credentials import ReadOnlyCredentials
 from botocore.exceptions import NoCredentialsError
 from botocore.utils import FileWebIdentityTokenLoader
-from moto import mock_dynamodb, mock_emr, mock_iam, mock_sts
+from moto import mock_aws
 from moto.core import DEFAULT_ACCOUNT_ID
 
 from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
@@ -246,7 +246,10 @@ class TestSessionFactory:
 
         session_profile = async_session.get_config_variable("profile")
 
+        import aiobotocore.session
+
         assert session_profile == profile_name
+        assert isinstance(async_session, aiobotocore.session.AioSession)
 
     @pytest.mark.asyncio
     async def test_async_create_a_session_from_credentials_without_token(self):
@@ -263,9 +266,12 @@ class TestSessionFactory:
         sf = BaseSessionFactory(conn=mock_conn_config, config=None)
         async_session = sf.create_session(deferrable=True)
         cred = await async_session.get_credentials()
+        import aiobotocore.session
+
         assert cred.access_key == "test_aws_access_key_id"
         assert cred.secret_key == "test_aws_secret_access_key"
         assert cred.token is None
+        assert isinstance(async_session, aiobotocore.session.AioSession)
 
     config_for_credentials_test = [
         (
@@ -279,7 +285,7 @@ class TestSessionFactory:
         ("assume-without-initial-creds", {}),
     ]
 
-    @mock_sts
+    @mock_aws
     @pytest.mark.parametrize(
         "conn_id, conn_extra",
         config_for_credentials_test,
@@ -300,6 +306,7 @@ class TestSessionFactory:
         # Validate method of botocore credentials provider.
         # It shouldn't be 'explicit' which refers in this case to initial credentials.
         assert session.get_credentials().method == "sts-assume-role"
+        assert isinstance(session, boto3.session.Session)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -330,18 +337,19 @@ class TestSessionFactory:
             conn = AwsConnectionWrapper.from_connection_metadata(conn_id=conn_id, extra=extra)
             sf = BaseSessionFactory(conn=conn)
             session = sf.create_session(deferrable=True)
-            assert session.region_name == region_name
+            assert session.get_config_variable("region") == region_name
             # Validate method of botocore credentials provider.
             # It shouldn't be 'explicit' which refers in this case to initial credentials.
             credentials = await session.get_credentials()
+            import aiobotocore.session
 
             assert inspect.iscoroutinefunction(credentials.get_frozen_credentials)
-
             assert credentials.method == "sts-assume-role"
+            assert isinstance(session, aiobotocore.session.AioSession)
 
 
 class TestAwsBaseHook:
-    @mock_emr
+    @mock_aws
     def test_get_client_type_set_in_class_attribute(self):
         client = boto3.client("emr", region_name="us-east-1")
         if client.list_clusters()["Clusters"]:
@@ -351,7 +359,7 @@ class TestAwsBaseHook:
 
         assert client_from_hook.list_clusters()["Clusters"] == []
 
-    @mock_dynamodb
+    @mock_aws
     def test_get_resource_type_set_in_class_attribute(self):
         hook = AwsBaseHook(aws_conn_id="aws_default", resource_type="dynamodb")
         resource_from_hook = hook.get_resource_type()
@@ -370,7 +378,7 @@ class TestAwsBaseHook:
 
         assert table.item_count == 0
 
-    @mock_dynamodb
+    @mock_aws
     def test_get_session_returns_a_boto3_session(self):
         hook = AwsBaseHook(aws_conn_id="aws_default", resource_type="dynamodb")
         session_from_hook = hook.get_session()
@@ -427,6 +435,7 @@ class TestAwsBaseHook:
         assert mock_class_name.call_count == len(found_classes)
         assert user_agent_tags["Caller"] == found_classes[-1]
 
+    @pytest.mark.db_test
     @mock.patch.object(AwsEcsExecutor, "_load_run_kwargs")
     def test_user_agent_caller_target_executor_found(self, mock_load_run_kwargs):
         with conf_vars(
@@ -449,6 +458,7 @@ class TestAwsBaseHook:
 
         assert user_agent_tags["Caller"] == default_caller_name
 
+    @pytest.mark.db_test
     @pytest.mark.parametrize("env_var, expected_version", [({"AIRFLOW_CTX_DAG_ID": "banana"}, 5), [{}, None]])
     @mock.patch.object(AwsBaseHook, "_get_caller", return_value="Test")
     def test_user_agent_dag_run_key_is_hashed_correctly(self, _, env_var, expected_version):
@@ -465,7 +475,7 @@ class TestAwsBaseHook:
         ],
     )
     @mock.patch.object(AwsBaseHook, "get_connection")
-    @mock_sts
+    @mock_aws
     def test_assume_role(self, mock_get_connection, sts_endpoint):
         aws_conn_id = "aws/test"
         role_arn = "arn:aws:iam::123456:role/role_arn"
@@ -631,7 +641,7 @@ class TestAwsBaseHook:
         ],
     )
     @mock.patch.object(AwsBaseHook, "get_connection")
-    @mock_sts
+    @mock_aws
     def test_assume_role_with_saml(self, mock_get_connection, sts_endpoint):
         idp_url = "https://my-idp.local.corp"
         principal_arn = "principal_arn_1234567890"
@@ -718,7 +728,7 @@ class TestAwsBaseHook:
             ),
         ]
 
-    @mock_iam
+    @mock_aws
     def test_expand_role(self):
         conn = boto3.client("iam", region_name="us-east-1")
         conn.create_role(RoleName="test-role", AssumeRolePolicyDocument="some policy")
@@ -734,7 +744,7 @@ class TestAwsBaseHook:
             hook.get_client_type("s3")
 
     @mock.patch.object(AwsBaseHook, "get_connection")
-    @mock_sts
+    @mock_aws
     def test_refreshable_credentials(self, mock_get_connection):
         role_arn = "arn:aws:iam::123456:role/role_arn"
         conn_id = "F5"
@@ -786,7 +796,7 @@ class TestAwsBaseHook:
             assert mock_refresh.call_count == 2
             assert len(expire_on_calls) == 0
 
-    @mock_dynamodb
+    @mock_aws
     @pytest.mark.parametrize("conn_type", ["client", "resource"])
     @pytest.mark.parametrize(
         "connection_uri,region_name,env_region,expected_region_name",
@@ -814,7 +824,7 @@ class TestAwsBaseHook:
 
             assert hook.conn_region_name == expected_region_name
 
-    @mock_dynamodb
+    @mock_aws
     @pytest.mark.parametrize("conn_type", ["client", "resource"])
     @pytest.mark.parametrize(
         "connection_uri,expected_partition",
@@ -835,7 +845,7 @@ class TestAwsBaseHook:
 
             assert hook.conn_partition == expected_partition
 
-    @mock_dynamodb
+    @mock_aws
     def test_service_name(self):
         client_hook = AwsBaseHook(aws_conn_id=None, client_type="dynamodb")
         resource_hook = AwsBaseHook(aws_conn_id=None, resource_type="dynamodb")
@@ -869,7 +879,7 @@ class TestAwsBaseHook:
         with pytest.raises(ValueError, match="Either client_type=.* or resource_type=.* must be provided"):
             hook.get_conn()
 
-    @mock_sts
+    @mock_aws
     def test_hook_connection_test(self):
         hook = AwsBaseHook(client_type="s3")
         result, message = hook.test_connection()
@@ -1031,6 +1041,10 @@ class TestAwsBaseHook:
         assert mock_mask_secret.mock_calls == expected_calls
         assert credentials == expected_credentials
 
+    @mock_aws
+    def test_account_id(self):
+        assert AwsBaseHook(aws_conn_id=None).account_id == DEFAULT_ACCOUNT_ID
+
 
 class ThrowErrorUntilCount:
     """Holds counter state for invoking a method several times in a row."""
@@ -1049,7 +1063,7 @@ class ThrowErrorUntilCount:
         """
         if self.counter < self.count:
             self.counter += 1
-            raise Exception()
+            raise RuntimeError("Fake Unexpected Error")
         return True
 
 
@@ -1103,12 +1117,12 @@ class TestRetryDecorator:  # ptlint: disable=invalid-name
             count=2,
             quota_retry=quota_retry,
         )
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="Fake Unexpected Error"):
             _non_retryable_test(custom_fn)
 
     def test_raise_exception_when_no_retry_args(self):
         custom_fn = ThrowErrorUntilCount(count=2, quota_retry=None)
-        with pytest.raises(Exception):
+        with pytest.raises(RuntimeError, match="Fake Unexpected Error"):
             _retryable_test(custom_fn)
 
 
@@ -1119,13 +1133,11 @@ def test_raise_no_creds_default_credentials_strategy(tmp_path_factory, monkeypat
         monkeypatch.delenv(env_key, raising=False)
 
     hook = AwsBaseHook(aws_conn_id=None, client_type="sts")
-    with pytest.raises(NoCredentialsError):
+    with pytest.raises(NoCredentialsError) as credential_error:
         # Call AWS STS API method GetCallerIdentity
         # which should return result in case of valid credentials
-        result = hook.conn.get_caller_identity()
-        # In normal circumstances lines below should not execute.
-        # We want to show additional information why this test not passed
-        assert not result, f"Credentials Method: {hook.get_session().get_credentials().method}"
+        hook.conn.get_caller_identity()
+    assert str(credential_error.value) == "Unable to locate credentials"
 
 
 TEST_WAITER_CONFIG_LOCATION = Path(__file__).parents[1].joinpath("waiters/test.json")

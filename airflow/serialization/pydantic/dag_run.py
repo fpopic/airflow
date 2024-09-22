@@ -21,9 +21,10 @@ from typing import TYPE_CHECKING, Iterable, List, Optional
 
 from pydantic import BaseModel as BaseModelPydantic, ConfigDict
 
+from airflow.models.dagrun import DagRun
 from airflow.serialization.pydantic.dag import PydanticDag
 from airflow.serialization.pydantic.dataset import DatasetEventPydantic
-from airflow.utils.session import NEW_SESSION, provide_session
+from airflow.utils.types import DagRunTriggeredByType
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
@@ -54,7 +55,9 @@ class DagRunPydantic(BaseModelPydantic):
     dag_hash: Optional[str]
     updated_at: Optional[datetime]
     dag: Optional[PydanticDag]
-    consumed_dataset_events: List[DatasetEventPydantic]  # noqa
+    consumed_dataset_events: List[DatasetEventPydantic]  # noqa: UP006
+    log_template_id: Optional[int]
+    triggered_by: Optional[DagRunTriggeredByType]
 
     model_config = ConfigDict(from_attributes=True, arbitrary_types_allowed=True)
 
@@ -62,24 +65,30 @@ class DagRunPydantic(BaseModelPydantic):
     def logical_date(self) -> datetime:
         return self.execution_date
 
-    @provide_session
     def get_task_instances(
         self,
         state: Iterable[TaskInstanceState | None] | None = None,
-        session: Session = NEW_SESSION,
+        session=None,
     ) -> list[TI]:
         """
         Return the task instances for this dag run.
 
-        TODO: make it works for AIP-44
+        Redirect to DagRun.fetch_task_instances method.
+        Keep this method because it is widely used across the code.
         """
-        raise NotImplementedError()
+        task_ids = DagRun._get_partial_task_ids(self.dag)
+        return DagRun.fetch_task_instances(
+            dag_id=self.dag_id,
+            run_id=self.run_id,
+            task_ids=task_ids,
+            state=state,
+            session=session,
+        )
 
-    @provide_session
     def get_task_instance(
         self,
         task_id: str,
-        session: Session = NEW_SESSION,
+        session: Session,
         *,
         map_index: int = -1,
     ) -> TI | TaskInstancePydantic | None:
@@ -98,6 +107,11 @@ class DagRunPydantic(BaseModelPydantic):
             session=session,
             map_index=map_index,
         )
+
+    def get_log_template(self, session: Session):
+        from airflow.models.dagrun import DagRun
+
+        return DagRun._get_log_template(log_template_id=self.log_template_id)
 
 
 DagRunPydantic.model_rebuild()

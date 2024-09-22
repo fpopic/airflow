@@ -15,12 +15,14 @@
 # specific language governing permissions and limitations
 # under the License.
 """This module contains ODBC hook."""
+
 from __future__ import annotations
 
-from typing import Any, NamedTuple
+from collections import namedtuple
+from typing import Any, List, Sequence, cast
 from urllib.parse import quote_plus
 
-import pyodbc
+from pyodbc import Connection, Row, connect
 
 from airflow.providers.common.sql.hooks.sql import DbApiHook
 from airflow.utils.helpers import merge_dicts
@@ -54,6 +56,7 @@ class OdbcHook(DbApiHook):
     conn_type = "odbc"
     hook_name = "ODBC"
     supports_autocommit = True
+    supports_executemany = True
 
     default_driver: str | None = None
 
@@ -77,13 +80,6 @@ class OdbcHook(DbApiHook):
         self._connect_kwargs = connect_kwargs
 
     @property
-    def connection(self):
-        """The Connection object with ID ``odbc_conn_id``."""
-        if not self._connection:
-            self._connection = self.get_connection(getattr(self, self.conn_name_attr))
-        return self._connection
-
-    @property
     def database(self) -> str | None:
         """Database provided in init if exists; otherwise, ``schema`` from ``Connection`` object."""
         return self._database or self.connection.schema
@@ -95,15 +91,6 @@ class OdbcHook(DbApiHook):
         if not self._sqlalchemy_scheme and extra_scheme and (":" in extra_scheme or "/" in extra_scheme):
             raise RuntimeError("sqlalchemy_scheme in connection extra should not contain : or / characters")
         return self._sqlalchemy_scheme or extra_scheme or self.DEFAULT_SQLALCHEMY_SCHEME
-
-    @property
-    def connection_extra_lower(self) -> dict:
-        """
-        ``connection.extra_dejson`` but where keys are converted to lower case.
-
-        This is used internally for case-insensitive access of odbc params.
-        """
-        return {k.lower(): v for k, v in self.connection.extra_dejson.items()}
 
     @property
     def driver(self) -> str | None:
@@ -136,7 +123,8 @@ class OdbcHook(DbApiHook):
 
     @property
     def odbc_connection_string(self):
-        """ODBC connection string.
+        """
+        ODBC connection string.
 
         We build connection string instead of using ``pyodbc.connect`` params
         because, for example, there is no param representing
@@ -161,10 +149,8 @@ class OdbcHook(DbApiHook):
             if self.connection.port:
                 conn_str += f"PORT={self.connection.port};"
 
-            extra_exclude = {"driver", "dsn", "connect_kwargs", "sqlalchemy_scheme"}
-            extra_params = {
-                k: v for k, v in self.connection.extra_dejson.items() if k.lower() not in extra_exclude
-            }
+            extra_exclude = {"driver", "dsn", "connect_kwargs", "sqlalchemy_scheme", "placeholder"}
+            extra_params = {k: v for k, v in self.connection_extra.items() if k.lower() not in extra_exclude}
             for k, v in extra_params.items():
                 conn_str += f"{k}={v};"
 
@@ -173,7 +159,8 @@ class OdbcHook(DbApiHook):
 
     @property
     def connect_kwargs(self) -> dict:
-        """Effective kwargs to be passed to ``pyodbc.connect``.
+        """
+        Effective kwargs to be passed to ``pyodbc.connect``.
 
         The kwargs are merged from connection extra, ``connect_kwargs``, and
         the hook's init arguments. Values received to the hook precede those
@@ -193,9 +180,9 @@ class OdbcHook(DbApiHook):
 
         return merged_connect_kwargs
 
-    def get_conn(self) -> pyodbc.Connection:
-        """Returns a pyodbc connection object."""
-        conn = pyodbc.connect(self.odbc_connection_string, **self.connect_kwargs)
+    def get_conn(self) -> Connection:
+        """Return ``pyodbc`` connection object."""
+        conn = connect(self.odbc_connection_string, **self.connect_kwargs)
         return conn
 
     def get_uri(self) -> str:
@@ -212,13 +199,17 @@ class OdbcHook(DbApiHook):
         cnx = engine.connect(**(connect_kwargs or {}))
         return cnx
 
-    @staticmethod
-    def _make_serializable(result: list[pyodbc.Row] | None) -> list[NamedTuple] | None:
-        """Transform the pyodbc.Row objects returned from an SQL command into JSON-serializable NamedTuple."""
-        if result is not None:
-            columns: list[tuple[str, type]] = [col[:2] for col in result[0].cursor_description]
-            # Below line respects NamedTuple docstring, but mypy do not support dynamically
-            # instantiated Namedtuple, and will never do: https://github.com/python/mypy/issues/848
-            row_object = NamedTuple("Row", columns)  # type: ignore[misc]
-            return [row_object(*row) for row in result]
-        return result
+    def _make_common_data_structure(self, result: Sequence[Row] | Row) -> list[tuple] | tuple:
+        """Transform the pyodbc.Row objects returned from an SQL command into namedtuples."""
+        # Below ignored lines respect namedtuple docstring, but mypy do not support dynamically
+        # instantiated namedtuple, and will never do: https://github.com/python/mypy/issues/848
+        field_names: list[tuple[str, type]] | None = None
+        if not result:
+            return []
+        if isinstance(result, Sequence):
+            field_names = [col[0] for col in result[0].cursor_description]
+            row_object = namedtuple("Row", field_names, rename=True)  # type: ignore
+            return cast(List[tuple], [row_object(*row) for row in result])
+        else:
+            field_names = [col[0] for col in result.cursor_description]
+            return cast(tuple, namedtuple("Row", field_names, rename=True)(*result))  # type: ignore

@@ -41,6 +41,7 @@ from airflow.providers.elasticsearch.log.es_response import ElasticSearchRespons
 from airflow.utils import timezone
 from airflow.utils.log.file_task_handler import FileTaskHandler
 from airflow.utils.log.logging_mixin import ExternalLoggingMixin, LoggingMixin
+from airflow.utils.module_loading import import_string
 from airflow.utils.session import create_session
 
 if TYPE_CHECKING:
@@ -71,14 +72,17 @@ def get_es_kwargs_from_config() -> dict[str, Any]:
         if elastic_search_config
         else {}
     )
-    # For elasticsearch>8 retry_timeout have changed for elasticsearch to retry_on_timeout
-    # in Elasticsearch() compared to previous versions.
-    # Read more at: https://elasticsearch-py.readthedocs.io/en/v8.8.2/api.html#module-elasticsearch
+    # TODO: Remove in next major release (drop support for elasticsearch<8 parameters)
     if (
         elastic_search_config
         and "retry_timeout" in elastic_search_config
         and not kwargs_dict.get("retry_on_timeout")
     ):
+        warnings.warn(
+            "retry_timeout is not supported with elasticsearch>=8. Please use `retry_on_timeout`.",
+            AirflowProviderDeprecationWarning,
+            stacklevel=2,
+        )
         retry_timeout = elastic_search_config.get("retry_timeout")
         if retry_timeout is not None:
             kwargs_dict["retry_on_timeout"] = retry_timeout
@@ -86,7 +90,8 @@ def get_es_kwargs_from_config() -> dict[str, Any]:
 
 
 def _ensure_ti(ti: TaskInstanceKey | TaskInstance, session) -> TaskInstance:
-    """Given TI | TIKey, return a TI object.
+    """
+    Given TI | TIKey, return a TI object.
 
     Will raise exception if no TI is found in the database.
     """
@@ -105,7 +110,7 @@ def _ensure_ti(ti: TaskInstanceKey | TaskInstance, session) -> TaskInstance:
         .one_or_none()
     )
     if isinstance(val, TaskInstance):
-        val._try_number = ti.try_number
+        val.try_number = ti.try_number
         return val
     else:
         raise AirflowException(f"Could not find TaskInstance for {ti}")
@@ -149,17 +154,18 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
         offset_field: str = "offset",
         host: str = "http://localhost:9200",
         frontend: str = "localhost:5601",
-        index_patterns: str | None = conf.get("elasticsearch", "index_patterns", fallback="_all"),
+        index_patterns: str = conf.get("elasticsearch", "index_patterns"),
+        index_patterns_callable: str = conf.get("elasticsearch", "index_patterns_callable", fallback=""),
         es_kwargs: dict | None | Literal["default_es_kwargs"] = "default_es_kwargs",
         *,
-        filename_template: str | None = None,
         log_id_template: str | None = None,
+        **kwargs,
     ):
         es_kwargs = es_kwargs or {}
         if es_kwargs == "default_es_kwargs":
             es_kwargs = get_es_kwargs_from_config()
         host = self.format_url(host)
-        super().__init__(base_log_folder, filename_template)
+        super().__init__(base_log_folder)
         self.closed = False
 
         self.client = elasticsearch.Elasticsearch(host, **es_kwargs)
@@ -168,6 +174,7 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
             warnings.warn(
                 "Passing log_id_template to ElasticsearchTaskHandler is deprecated and has no effect",
                 AirflowProviderDeprecationWarning,
+                stacklevel=2,
             )
 
         self.log_id_template = log_id_template  # Only used on Airflow < 2.3.2.
@@ -180,6 +187,7 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
         self.host_field = host_field
         self.offset_field = offset_field
         self.index_patterns = index_patterns
+        self.index_patterns_callable = index_patterns_callable
         self.context_set = False
 
         self.formatter: logging.Formatter
@@ -209,6 +217,19 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
 
         return host
 
+    def _get_index_patterns(self, ti: TaskInstance | None) -> str:
+        """
+        Get index patterns by calling index_patterns_callable, if provided, or the configured index_patterns.
+
+        :param ti: A TaskInstance object or None.
+        """
+        if self.index_patterns_callable:
+            self.log.debug("Using index_patterns_callable: %s", self.index_patterns_callable)
+            index_pattern_callable_obj = import_string(self.index_patterns_callable)
+            return index_pattern_callable_obj(ti)
+        self.log.debug("Using index_patterns: %s", self.index_patterns)
+        return self.index_patterns
+
     def _render_log_id(self, ti: TaskInstance | TaskInstanceKey, try_number: int) -> str:
         from airflow.models.taskinstance import TaskInstanceKey
 
@@ -221,6 +242,8 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
             else:
                 log_id_template = self.log_id_template
 
+        if TYPE_CHECKING:
+            assert ti.task
         try:
             dag = ti.task.dag
         except AttributeError:  # ti.task is not always set.
@@ -296,7 +319,7 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
 
         offset = metadata["offset"]
         log_id = self._render_log_id(ti, try_number)
-        response = self._es_read(log_id, offset)
+        response = self._es_read(log_id, offset, ti)
         if response is not None and response.hits:
             logs_by_host = self._group_logs_by_host(response)
             next_offset = attrgetter(self.offset_field)(response[-1])
@@ -366,12 +389,13 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
         # Just a safe-guard to preserve backwards-compatibility
         return hit.message
 
-    def _es_read(self, log_id: str, offset: int | str) -> ElasticSearchResponse | None:
+    def _es_read(self, log_id: str, offset: int | str, ti: TaskInstance) -> ElasticSearchResponse | None:
         """
         Return the logs matching log_id in Elasticsearch and next offset or ''.
 
         :param log_id: the log_id of the log to read.
         :param offset: the offset start to read log from.
+        :param ti: the task instance object
 
         :meta private:
         """
@@ -382,16 +406,17 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
             }
         }
 
+        index_patterns = self._get_index_patterns(ti)
         try:
-            max_log_line = self.client.count(index=self.index_patterns, query=query)["count"]  # type: ignore
+            max_log_line = self.client.count(index=index_patterns, query=query)["count"]  # type: ignore
         except NotFoundError as e:
-            self.log.exception("The target index pattern %s does not exist", self.index_patterns)
+            self.log.exception("The target index pattern %s does not exist", index_patterns)
             raise e
 
         if max_log_line != 0:
             try:
                 res = self.client.search(
-                    index=self.index_patterns,
+                    index=index_patterns,
                     query=query,
                     sort=[self.offset_field],
                     size=self.MAX_LINE_PER_PAGE,
@@ -459,8 +484,7 @@ class ElasticsearchTaskHandler(FileTaskHandler, ExternalLoggingMixin, LoggingMix
         if self.closed:
             return
 
-        # todo: remove `getattr` when min airflow version >= 2.6
-        if not self.mark_end_on_close or getattr(self, "ctx_task_deferred", None):
+        if not self.mark_end_on_close:
             # when we're closing due to task deferral, don't mark end of log
             self.closed = True
             return

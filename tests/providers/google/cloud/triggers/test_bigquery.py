@@ -24,7 +24,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from aiohttp import ClientResponseError, RequestInfo
-from gcloud.aio.bigquery import Job, Table
+from gcloud.aio.bigquery import Table
 from multidict import CIMultiDict
 from yarl import URL
 
@@ -48,6 +48,7 @@ TEST_JOB_ID = "1234"
 TEST_GCP_PROJECT_ID = "test-project"
 TEST_DATASET_ID = "bq_dataset"
 TEST_TABLE_ID = "bq_table"
+TEST_LOCATION = "US"
 POLLING_PERIOD_SECONDS = 4.0
 TEST_SQL_QUERY = "SELECT count(*) from Any"
 TEST_PASS_VALUE = 2
@@ -63,6 +64,7 @@ TEST_GCP_CONN_ID = "TEST_GCP_CONN_ID"
 TEST_IMPERSONATION_CHAIN = "TEST_SERVICE_ACCOUNT"
 TEST_HOOK_PARAMS: dict[str, Any] = {}
 TEST_PARTITION_ID = "1234"
+TEST_SELECTED_FIELDS = "f0_,f1_"
 
 
 @pytest.fixture
@@ -73,6 +75,7 @@ def insert_job_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=TEST_LOCATION,
         poll_interval=POLLING_PERIOD_SECONDS,
         impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
@@ -86,8 +89,10 @@ def get_data_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=None,
         poll_interval=POLLING_PERIOD_SECONDS,
         impersonation_chain=TEST_IMPERSONATION_CHAIN,
+        selected_fields=TEST_SELECTED_FIELDS,
     )
 
 
@@ -132,6 +137,7 @@ def check_trigger():
         project_id=TEST_GCP_PROJECT_ID,
         dataset_id=TEST_DATASET_ID,
         table_id=TEST_TABLE_ID,
+        location=None,
         poll_interval=POLLING_PERIOD_SECONDS,
         impersonation_chain=TEST_IMPERSONATION_CHAIN,
     )
@@ -161,11 +167,13 @@ class TestBigQueryInsertJobTrigger:
         classpath, kwargs = insert_job_trigger.serialize()
         assert classpath == "airflow.providers.google.cloud.triggers.bigquery.BigQueryInsertJobTrigger"
         assert kwargs == {
+            "cancel_on_kill": True,
             "conn_id": TEST_CONN_ID,
             "job_id": TEST_JOB_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "dataset_id": TEST_DATASET_ID,
             "table_id": TEST_TABLE_ID,
+            "location": TEST_LOCATION,
             "poll_interval": POLLING_PERIOD_SECONDS,
             "impersonation_chain": TEST_IMPERSONATION_CHAIN,
         }
@@ -185,13 +193,11 @@ class TestBigQueryInsertJobTrigger:
         )
 
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_insert_job_trigger_running(self, mock_job_instance, caplog, insert_job_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_insert_job_trigger_running(self, mock_get_job, caplog, insert_job_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="RUNNING")
         caplog.set_level(logging.INFO)
 
         task = asyncio.create_task(insert_job_trigger.run().__anext__())
@@ -230,6 +236,78 @@ class TestBigQueryInsertJobTrigger:
         actual = await generator.asend(None)
         assert TriggerEvent({"status": "error", "message": "Test exception"}) == actual
 
+    @pytest.mark.asyncio
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.cancel_job")
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_status")
+    @mock.patch("airflow.providers.google.cloud.triggers.bigquery.BigQueryInsertJobTrigger.safe_to_cancel")
+    async def test_bigquery_insert_job_trigger_cancellation(
+        self, mock_get_task_instance, mock_get_job_status, mock_cancel_job, caplog, insert_job_trigger
+    ):
+        """
+        Test that BigQueryInsertJobTrigger handles cancellation correctly, logs the appropriate message,
+        and conditionally cancels the job based on the `cancel_on_kill` attribute.
+        """
+        mock_get_task_instance.return_value = True
+        insert_job_trigger.cancel_on_kill = True
+        insert_job_trigger.job_id = "1234"
+
+        mock_get_job_status.side_effect = [
+            {"status": "running", "message": "Job is still running"},
+            asyncio.CancelledError(),
+        ]
+
+        mock_cancel_job.return_value = asyncio.Future()
+        mock_cancel_job.return_value.set_result(None)
+
+        caplog.set_level(logging.INFO)
+
+        try:
+            async for _ in insert_job_trigger.run():
+                pass
+        except asyncio.CancelledError:
+            pass
+
+        assert (
+            "Task was killed" in caplog.text
+            or "Bigquery job status is running. Sleeping for 4.0 seconds." in caplog.text
+        ), "Expected messages about task status or cancellation not found in log."
+        mock_cancel_job.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.cancel_job")
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_status")
+    @mock.patch("airflow.providers.google.cloud.triggers.bigquery.BigQueryInsertJobTrigger.safe_to_cancel")
+    async def test_bigquery_insert_job_trigger_cancellation_unsafe_cancellation(
+        self, mock_safe_to_cancel, mock_get_job_status, mock_cancel_job, caplog, insert_job_trigger
+    ):
+        """
+        Test that BigQueryInsertJobTrigger logs the appropriate message and does not cancel the job
+        if safe_to_cancel returns False even when the task is cancelled.
+        """
+        mock_safe_to_cancel.return_value = False
+        insert_job_trigger.cancel_on_kill = True
+        insert_job_trigger.job_id = "1234"
+
+        # Simulate the initial job status as running
+        mock_get_job_status.side_effect = [
+            {"status": "running", "message": "Job is still running"},
+            asyncio.CancelledError(),
+            {"status": "running", "message": "Job is still running after cancellation"},
+        ]
+
+        caplog.set_level(logging.INFO)
+
+        try:
+            async for _ in insert_job_trigger.run():
+                pass
+        except asyncio.CancelledError:
+            pass
+
+        assert (
+            "Skipping to cancel job" in caplog.text
+        ), "Expected message about skipping cancellation not found in log."
+        assert mock_get_job_status.call_count == 2, "Job status should be checked multiple times"
+
 
 class TestBigQueryGetDataTrigger:
     def test_bigquery_get_data_trigger_serialization(self, get_data_trigger):
@@ -245,17 +323,17 @@ class TestBigQueryGetDataTrigger:
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table_id": TEST_TABLE_ID,
+            "location": None,
+            "selected_fields": TEST_SELECTED_FIELDS,
             "poll_interval": POLLING_PERIOD_SECONDS,
         }
 
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_get_data_trigger_running(self, mock_job_instance, caplog, get_data_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_get_data_trigger_running(self, mock_get_job, caplog, get_data_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="running")
         caplog.set_level(logging.INFO)
 
         task = asyncio.create_task(get_data_trigger.run().__anext__())
@@ -348,13 +426,11 @@ class TestBigQueryGetDataTrigger:
 
 class TestBigQueryCheckTrigger:
     @pytest.mark.asyncio
-    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_instance")
-    async def test_bigquery_check_trigger_running(self, mock_job_instance, caplog, check_trigger):
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook._get_job")
+    async def test_bigquery_check_trigger_running(self, mock_get_job, caplog, check_trigger):
         """Test that BigQuery Triggers do not fire while a query is still running."""
 
-        mock_job_client = AsyncMock(Job)
-        mock_job_instance.return_value = mock_job_client
-        mock_job_instance.return_value.get_job.return_value = {"status": {"state": "running"}}
+        mock_get_job.return_value = mock.MagicMock(state="running")
 
         task = asyncio.create_task(check_trigger.run().__anext__())
         await asyncio.sleep(0.5)
@@ -406,7 +482,9 @@ class TestBigQueryCheckTrigger:
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table_id": TEST_TABLE_ID,
+            "location": None,
             "poll_interval": POLLING_PERIOD_SECONDS,
+            "cancel_on_kill": True,
         }
 
     @pytest.mark.asyncio
@@ -487,6 +565,7 @@ class TestBigQueryIntervalCheckTrigger:
             "second_job_id": TEST_SECOND_JOB_ID,
             "project_id": TEST_GCP_PROJECT_ID,
             "table": TEST_TABLE_ID,
+            "location": None,
             "metrics_thresholds": TEST_METRIC_THRESHOLDS,
             "date_filter_column": TEST_DATE_FILTER_COLUMN,
             "days_back": TEST_DAYS_BACK,
@@ -497,12 +576,14 @@ class TestBigQueryIntervalCheckTrigger:
     @pytest.mark.asyncio
     @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_status")
     @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_job_output")
+    @mock.patch("airflow.providers.google.cloud.hooks.bigquery.BigQueryAsyncHook.get_records")
     async def test_interval_check_trigger_success(
-        self, mock_get_job_output, mock_job_status, interval_check_trigger
+        self, mock_get_records, mock_get_job_output, mock_job_status, interval_check_trigger
     ):
         """
         Tests the BigQueryIntervalCheckTrigger only fires once the query execution reaches a successful state.
         """
+        mock_get_records.return_value = {}
         mock_job_status.return_value = {"status": "success", "message": "Job completed"}
         mock_get_job_output.return_value = ["0"]
 
@@ -578,6 +659,7 @@ class TestBigQueryValueCheckTrigger:
             "job_id": TEST_JOB_ID,
             "dataset_id": TEST_DATASET_ID,
             "project_id": TEST_GCP_PROJECT_ID,
+            "location": None,
             "sql": TEST_SQL_QUERY,
             "table_id": TEST_TABLE_ID,
             "tolerance": TEST_TOLERANCE,
@@ -598,7 +680,7 @@ class TestBigQueryValueCheckTrigger:
         get_job_output.return_value = {}
         get_records.return_value = [[2], [4]]
 
-        asyncio.create_task(value_check_trigger.run().__anext__())
+        await value_check_trigger.run().__anext__()
         await asyncio.sleep(0.5)
 
         generator = value_check_trigger.run()

@@ -19,6 +19,7 @@ from __future__ import annotations
 import socket
 from unittest import mock
 
+import pytest
 from kubernetes.client import Configuration
 from urllib3.connection import HTTPConnection, HTTPSConnection
 
@@ -34,14 +35,14 @@ class TestClient:
     @mock.patch("airflow.providers.cncf.kubernetes.kube_client.config")
     def test_load_cluster_config(self, config):
         get_kube_client(in_cluster=True)
-        assert config.load_incluster_config.called
-        assert config.load_kube_config.not_called
+        config.load_incluster_config.assert_called()
+        config.load_kube_config.assert_not_called()
 
     @mock.patch("airflow.providers.cncf.kubernetes.kube_client.config")
     def test_load_file_config(self, config):
         get_kube_client(in_cluster=False)
-        assert config.load_incluster_config.not_called
-        assert config.load_kube_config.called
+        config.load_incluster_config.assert_not_called()
+        config.load_kube_config.assert_called()
 
     @mock.patch("airflow.providers.cncf.kubernetes.kube_client.config")
     @mock.patch("airflow.providers.cncf.kubernetes.kube_client.conf")
@@ -61,6 +62,7 @@ class TestClient:
         conf.get.assert_called_with("kubernetes_executor", "ssl_ca_cert")
         assert client.api_client.configuration.ssl_ca_cert == "/path/to/ca.crt"
 
+    @pytest.mark.platform("linux")
     def test_enable_tcp_keepalive(self):
         socket_options = [
             (socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1),
@@ -90,7 +92,9 @@ class TestClient:
         assert not configuration.verify_ssl
 
     @mock.patch("kubernetes.config.incluster_config.InClusterConfigLoader")
-    @conf_vars({("kubernetes", "api_client_retry_configuration"): '{"total": 3, "backoff_factor": 0.5}'})
+    @conf_vars(
+        {("kubernetes_executor", "api_client_retry_configuration"): '{"total": 3, "backoff_factor": 0.5}'}
+    )
     def test_api_client_retry_configuration_correct_values(self, mock_in_cluster_loader):
         get_kube_client(in_cluster=True)
         client_configuration = mock_in_cluster_loader().load_and_set.call_args.args[0]

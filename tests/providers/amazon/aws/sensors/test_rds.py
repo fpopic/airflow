@@ -16,7 +16,7 @@
 # under the License.
 from __future__ import annotations
 
-from moto import mock_rds
+from moto import mock_aws
 
 from airflow.models import DAG
 from airflow.providers.amazon.aws.hooks.rds import RdsHook
@@ -105,7 +105,11 @@ class TestBaseRdsSensor:
 
     @classmethod
     def setup_class(cls):
-        cls.dag = DAG("test_dag", default_args={"owner": "airflow", "start_date": DEFAULT_DATE})
+        cls.dag = DAG(
+            dag_id="test_dag",
+            schedule=None,
+            default_args={"owner": "airflow", "start_date": DEFAULT_DATE},
+        )
         cls.base_sensor = RdsBaseSensor(task_id="test_task", aws_conn_id="aws_default", dag=cls.dag)
 
     @classmethod
@@ -121,7 +125,11 @@ class TestBaseRdsSensor:
 class TestRdsSnapshotExistenceSensor:
     @classmethod
     def setup_class(cls):
-        cls.dag = DAG("test_dag", default_args={"owner": "airflow", "start_date": DEFAULT_DATE})
+        cls.dag = DAG(
+            dag_id="test_dag",
+            schedule=None,
+            default_args={"owner": "airflow", "start_date": DEFAULT_DATE},
+        )
         cls.hook = RdsHook()
 
     @classmethod
@@ -129,7 +137,7 @@ class TestRdsSnapshotExistenceSensor:
         del cls.dag
         del cls.hook
 
-    @mock_rds
+    @mock_aws
     def test_db_instance_snapshot_poke_true(self):
         _create_db_instance_snapshot(self.hook)
         op = RdsSnapshotExistenceSensor(
@@ -141,7 +149,7 @@ class TestRdsSnapshotExistenceSensor:
         )
         assert op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_db_instance_snapshot_poke_false(self):
         _create_db_instance(self.hook)
         op = RdsSnapshotExistenceSensor(
@@ -153,7 +161,7 @@ class TestRdsSnapshotExistenceSensor:
         )
         assert not op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_db_instance_cluster_poke_true(self):
         _create_db_cluster_snapshot(self.hook)
         op = RdsSnapshotExistenceSensor(
@@ -165,7 +173,7 @@ class TestRdsSnapshotExistenceSensor:
         )
         assert op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_db_instance_cluster_poke_false(self):
         op = RdsSnapshotExistenceSensor(
             task_id="test_cluster_snap_false",
@@ -180,7 +188,11 @@ class TestRdsSnapshotExistenceSensor:
 class TestRdsExportTaskExistenceSensor:
     @classmethod
     def setup_class(cls):
-        cls.dag = DAG("test_dag", default_args={"owner": "airflow", "start_date": DEFAULT_DATE})
+        cls.dag = DAG(
+            dag_id="test_dag",
+            schedule=None,
+            default_args={"owner": "airflow", "start_date": DEFAULT_DATE},
+        )
         cls.hook = RdsHook(aws_conn_id=AWS_CONN, region_name="us-east-1")
 
     @classmethod
@@ -188,7 +200,7 @@ class TestRdsExportTaskExistenceSensor:
         del cls.dag
         del cls.hook
 
-    @mock_rds
+    @mock_aws
     def test_export_task_poke_true(self):
         _create_db_instance_snapshot(self.hook)
         _start_export_task(self.hook)
@@ -200,7 +212,7 @@ class TestRdsExportTaskExistenceSensor:
         )
         assert op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_export_task_poke_false(self):
         _create_db_instance_snapshot(self.hook)
         op = RdsExportTaskExistenceSensor(
@@ -215,7 +227,11 @@ class TestRdsExportTaskExistenceSensor:
 class TestRdsDbSensor:
     @classmethod
     def setup_class(cls):
-        cls.dag = DAG("test_dag", default_args={"owner": "airflow", "start_date": DEFAULT_DATE})
+        cls.dag = DAG(
+            dag_id="test_dag",
+            schedule=None,
+            default_args={"owner": "airflow", "start_date": DEFAULT_DATE},
+        )
         cls.hook = RdsHook()
 
     @classmethod
@@ -223,7 +239,7 @@ class TestRdsDbSensor:
         del cls.dag
         del cls.hook
 
-    @mock_rds
+    @mock_aws
     def test_poke_true_instance(self):
         """
         By default RdsDbSensor should wait for an instance to enter the 'available' state
@@ -237,7 +253,7 @@ class TestRdsDbSensor:
         )
         assert op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_poke_false_instance(self):
         _create_db_instance(self.hook)
         op = RdsDbSensor(
@@ -249,7 +265,7 @@ class TestRdsDbSensor:
         )
         assert not op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_poke_true_cluster(self):
         _create_db_cluster(self.hook)
         op = RdsDbSensor(
@@ -261,7 +277,7 @@ class TestRdsDbSensor:
         )
         assert op.poke(None)
 
-    @mock_rds
+    @mock_aws
     def test_poke_false_cluster(self):
         _create_db_cluster(self.hook)
         op = RdsDbSensor(

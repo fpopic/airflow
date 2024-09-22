@@ -62,7 +62,7 @@ class TestPgbouncer:
         assert {"name": "pgbouncer", "protocol": "TCP", "port": 6543} in jmespath.search(
             "spec.ports", docs[0]
         )
-        assert {"name": "pgbouncer-metrics", "protocol": "TCP", "port": 9127} in jmespath.search(
+        assert {"name": "pgb-metrics", "protocol": "TCP", "port": 9127} in jmespath.search(
             "spec.ports", docs[0]
         )
 
@@ -80,7 +80,7 @@ class TestPgbouncer:
         assert {"name": "pgbouncer", "protocol": "TCP", "port": 1111} in jmespath.search(
             "spec.ports", docs[0]
         )
-        assert {"name": "pgbouncer-metrics", "protocol": "TCP", "port": 2222} in jmespath.search(
+        assert {"name": "pgb-metrics", "protocol": "TCP", "port": 2222} in jmespath.search(
             "spec.ports", docs[0]
         )
 
@@ -97,6 +97,16 @@ class TestPgbouncer:
             "prometheus.io/port": "9127",
             "foo": "bar",
         } == jmespath.search("metadata.annotations", docs[0])
+
+    def test_pgbouncer_service_static_cluster_ip(self):
+        docs = render_chart(
+            values={
+                "pgbouncer": {"enabled": True, "service": {"clusterIp": "10.10.10.10"}},
+            },
+            show_only=["templates/pgbouncer/pgbouncer-service.yaml"],
+        )
+
+        assert "10.10.10.10" == jmespath.search("spec.clusterIP", docs[0])
 
     @pytest.mark.parametrize(
         "revision_history_limit, global_revision_history_limit",
@@ -487,7 +497,7 @@ class TestPgbouncerConfig:
         }
         ini = self._get_pgbouncer_ini(values)
 
-        assert "auth_type = md5" in ini
+        assert "auth_type = scram-sha-256" in ini
         assert "auth_file = /etc/pgbouncer/users.txt" in ini
 
     def test_auth_type_file_overrides(self):
@@ -557,7 +567,7 @@ class TestPgbouncerConfig:
                 "pgbouncer": {
                     "enabled": True,
                     "extraContainers": [
-                        {"name": "test-container", "image": "test-registry/test-repo:test-tag"}
+                        {"name": "{{ .Chart.Name }}", "image": "test-registry/test-repo:test-tag"}
                     ],
                 },
             },
@@ -565,7 +575,7 @@ class TestPgbouncerConfig:
         )
 
         assert {
-            "name": "test-container",
+            "name": "airflow",
             "image": "test-registry/test-repo:test-tag",
         } == jmespath.search("spec.template.spec.containers[-1]", docs[0])
 
@@ -827,3 +837,34 @@ class TestPgbouncerNetworkPolicy:
         )
 
         assert expected_selector == jmespath.search("spec.ingress[0].from[1:]", docs[0])
+
+
+class TestPgbouncerIngress:
+    """Tests PgBouncer Ingress."""
+
+    def test_pgbouncer_ingress(self):
+        docs = render_chart(
+            values={
+                "pgbouncer": {"enabled": True},
+                "ingress": {
+                    "pgbouncer": {
+                        "enabled": True,
+                        "hosts": [
+                            {"name": "some-host", "tls": {"enabled": True, "secretName": "some-secret"}}
+                        ],
+                        "ingressClassName": "ingress-class",
+                    }
+                },
+            },
+            show_only=["templates/pgbouncer/pgbouncer-ingress.yaml"],
+        )
+
+        assert {"name": "release-name-pgbouncer", "port": {"name": "pgb-metrics"}} == jmespath.search(
+            "spec.rules[0].http.paths[0].backend.service", docs[0]
+        )
+        assert "/metrics" == jmespath.search("spec.rules[0].http.paths[0].path", docs[0])
+        assert "some-host" == jmespath.search("spec.rules[0].host", docs[0])
+        assert {"hosts": ["some-host"], "secretName": "some-secret"} == jmespath.search(
+            "spec.tls[0]", docs[0]
+        )
+        assert "ingress-class" == jmespath.search("spec.ingressClassName", docs[0])

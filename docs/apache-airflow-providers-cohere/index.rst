@@ -53,39 +53,6 @@
 
     System Tests <_api/tests/system/providers/cohere/index>
 
-Package apache-airflow-providers-cohere
------------------------------------------
-
-`Cohere <https://cohere.com>`__
-
-
-Release: 1.0.0
-
-Provider package
-----------------
-
-This is a provider package for ``cohere`` APIs. All classes for this provider package
-are in ``airflow.providers.cohere`` python module.
-
-Installation
-------------
-
-You can install this package on top of an existing Airflow 2 installation (see ``Requirements`` below)
-for the minimum Airflow version supported) via
-``pip install apache-airflow-providers-cohere``
-
-
-Requirements
-------------
-
-The minimum Apache Airflow version supported by this provider package is ``2.5.0``.
-
-==================  ==================
-PIP package         Version required
-==================  ==================
-``apache-airflow``  ``>=2.5.0``
-``cohere``          ``>=4.27``
-==================  ==================
 
 .. THE REMAINDER OF THE FILE IS AUTOMATICALLY GENERATED. IT WILL BE OVERWRITTEN AT RELEASE TIME!
 
@@ -98,35 +65,35 @@ PIP package         Version required
     Detailed list of commits <commits>
 
 
-Package apache-airflow-providers-cohere
+apache-airflow-providers-cohere package
 ------------------------------------------------------
 
 `Cohere <https://docs.cohere.com/docs>`__
 
 
-Release: 1.0.0
+Release: 1.3.0
 
 Provider package
 ----------------
 
-This is a provider package for ``cohere`` provider. All classes for this provider package
-are in ``airflow.providers.cohere`` python package.
+This package is for the ``cohere`` provider.
+All classes for this package are included in the ``airflow.providers.cohere`` python package.
 
 Installation
 ------------
 
-You can install this package on top of an existing Airflow 2 installation (see ``Requirements`` below)
-for the minimum Airflow version supported) via
-``pip install apache-airflow-providers-cohere``
+You can install this package on top of an existing Airflow 2 installation via
+``pip install apache-airflow-providers-cohere``.
+For the minimum Airflow version supported, see ``Requirements`` below.
 
 Requirements
 ------------
 
-The minimum Apache Airflow version supported by this provider package is ``2.5.0``.
+The minimum Apache Airflow version supported by this provider package is ``2.8.0``.
 
 ==================  ==================
 PIP package         Version required
 ==================  ==================
-``apache-airflow``  ``>=2.5.0``
-``cohere``          ``>=4.27``
+``apache-airflow``  ``>=2.8.0``
+``cohere``          ``>=4.37,<5``
 ==================  ==================

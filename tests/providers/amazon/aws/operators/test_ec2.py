@@ -18,7 +18,7 @@
 from __future__ import annotations
 
 import pytest
-from moto import mock_ec2
+from moto import mock_aws
 
 from airflow.exceptions import AirflowException
 from airflow.providers.amazon.aws.hooks.ec2 import EC2Hook
@@ -30,6 +30,7 @@ from airflow.providers.amazon.aws.operators.ec2 import (
     EC2StopInstanceOperator,
     EC2TerminateInstanceOperator,
 )
+from tests.providers.amazon.aws.utils.test_template_fields import validate_template_fields
 
 
 class BaseEc2TestClass:
@@ -61,7 +62,7 @@ class TestEC2CreateInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.max_attempts == 20
         assert ec2_operator.poll_interval == 20
 
-    @mock_ec2
+    @mock_aws
     def test_create_instance(self):
         ec2_hook = EC2Hook()
         create_instance = EC2CreateInstanceOperator(
@@ -72,7 +73,7 @@ class TestEC2CreateInstanceOperator(BaseEc2TestClass):
 
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "running"
 
-    @mock_ec2
+    @mock_aws
     def test_create_multiple_instances(self):
         ec2_hook = EC2Hook()
         create_instances = EC2CreateInstanceOperator(
@@ -87,6 +88,13 @@ class TestEC2CreateInstanceOperator(BaseEc2TestClass):
         for id in instance_ids:
             assert ec2_hook.get_instance_state(instance_id=id) == "running"
 
+    def test_template_fields(self):
+        ec2_operator = EC2CreateInstanceOperator(
+            task_id="test_create_instance",
+            image_id="test_image_id",
+        )
+        validate_template_fields(ec2_operator)
+
 
 class TestEC2TerminateInstanceOperator(BaseEc2TestClass):
     def test_init(self):
@@ -99,7 +107,7 @@ class TestEC2TerminateInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.max_attempts == 20
         assert ec2_operator.poll_interval == 20
 
-    @mock_ec2
+    @mock_aws
     def test_terminate_instance(self):
         ec2_hook = EC2Hook()
 
@@ -118,7 +126,7 @@ class TestEC2TerminateInstanceOperator(BaseEc2TestClass):
 
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "terminated"
 
-    @mock_ec2
+    @mock_aws
     def test_terminate_multiple_instances(self):
         ec2_hook = EC2Hook()
         create_instances = EC2CreateInstanceOperator(
@@ -140,6 +148,13 @@ class TestEC2TerminateInstanceOperator(BaseEc2TestClass):
         for id in instance_ids:
             assert ec2_hook.get_instance_state(instance_id=id) == "terminated"
 
+    def test_template_fields(self):
+        ec2_operator = EC2TerminateInstanceOperator(
+            task_id="test_terminate_instance",
+            instance_ids="test_image_id",
+        )
+        validate_template_fields(ec2_operator)
+
 
 class TestEC2StartInstanceOperator(BaseEc2TestClass):
     def test_init(self):
@@ -156,7 +171,7 @@ class TestEC2StartInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.region_name == "region-test"
         assert ec2_operator.check_interval == 3
 
-    @mock_ec2
+    @mock_aws
     def test_start_instance(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -175,6 +190,17 @@ class TestEC2StartInstanceOperator(BaseEc2TestClass):
         # assert instance state is running
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "running"
 
+    def test_template_fields(self):
+        ec2_operator = EC2StartInstanceOperator(
+            task_id="task_test",
+            instance_id="i-123abc",
+            aws_conn_id="aws_conn_test",
+            region_name="region-test",
+            check_interval=3,
+        )
+
+        validate_template_fields(ec2_operator)
+
 
 class TestEC2StopInstanceOperator(BaseEc2TestClass):
     def test_init(self):
@@ -191,7 +217,7 @@ class TestEC2StopInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.region_name == "region-test"
         assert ec2_operator.check_interval == 3
 
-    @mock_ec2
+    @mock_aws
     def test_stop_instance(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -210,6 +236,17 @@ class TestEC2StopInstanceOperator(BaseEc2TestClass):
         # assert instance state is running
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "stopped"
 
+    def test_template_fields(self):
+        ec2_operator = EC2StopInstanceOperator(
+            task_id="task_test",
+            instance_id="i-123abc",
+            aws_conn_id="aws_conn_test",
+            region_name="region-test",
+            check_interval=3,
+        )
+
+        validate_template_fields(ec2_operator)
+
 
 class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
     def test_init(self):
@@ -220,7 +257,7 @@ class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.task_id == "task_test"
         assert ec2_operator.instance_ids == "i-123abc"
 
-    @mock_ec2
+    @mock_aws
     def test_hibernate_instance(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -240,7 +277,7 @@ class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
         # assert instance state is stopped
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "stopped"
 
-    @mock_ec2
+    @mock_aws
     def test_hibernate_multiple_instances(self):
         ec2_hook = EC2Hook()
         create_instances = EC2CreateInstanceOperator(
@@ -263,7 +300,7 @@ class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
         for id in instance_ids:
             assert ec2_hook.get_instance_state(instance_id=id) == "stopped"
 
-    @mock_ec2
+    @mock_aws
     def test_cannot_hibernate_instance(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -289,7 +326,7 @@ class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
         # assert instance state is running
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "running"
 
-    @mock_ec2
+    @mock_aws
     def test_cannot_hibernate_some_instances(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -322,6 +359,13 @@ class TestEC2HibernateInstanceOperator(BaseEc2TestClass):
         for id in instance_ids:
             assert ec2_hook.get_instance_state(instance_id=id) == "running"
 
+    def test_template_fields(self):
+        ec2_operator = EC2HibernateInstanceOperator(
+            task_id="task_test",
+            instance_ids="i-123abc",
+        )
+        validate_template_fields(ec2_operator)
+
 
 class TestEC2RebootInstanceOperator(BaseEc2TestClass):
     def test_init(self):
@@ -332,7 +376,7 @@ class TestEC2RebootInstanceOperator(BaseEc2TestClass):
         assert ec2_operator.task_id == "task_test"
         assert ec2_operator.instance_ids == "i-123abc"
 
-    @mock_ec2
+    @mock_aws
     def test_reboot_instance(self):
         # create instance
         ec2_hook = EC2Hook()
@@ -351,7 +395,7 @@ class TestEC2RebootInstanceOperator(BaseEc2TestClass):
         # assert instance state is running
         assert ec2_hook.get_instance_state(instance_id=instance_id[0]) == "running"
 
-    @mock_ec2
+    @mock_aws
     def test_reboot_multiple_instances(self):
         ec2_hook = EC2Hook()
         create_instances = EC2CreateInstanceOperator(
@@ -372,3 +416,10 @@ class TestEC2RebootInstanceOperator(BaseEc2TestClass):
         terminate_instance.execute(None)
         for id in instance_ids:
             assert ec2_hook.get_instance_state(instance_id=id) == "running"
+
+    def test_template_fields(self):
+        ec2_operator = EC2RebootInstanceOperator(
+            task_id="task_test",
+            instance_ids="i-123abc",
+        )
+        validate_template_fields(ec2_operator)

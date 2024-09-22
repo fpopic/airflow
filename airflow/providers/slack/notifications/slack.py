@@ -21,15 +21,8 @@ import json
 from functools import cached_property
 from typing import TYPE_CHECKING, Sequence
 
-from airflow.exceptions import AirflowOptionalProviderFeatureException
+from airflow.notifications.basenotifier import BaseNotifier
 from airflow.providers.slack.hooks.slack import SlackHook
-
-try:
-    from airflow.notifications.basenotifier import BaseNotifier
-except ImportError:
-    raise AirflowOptionalProviderFeatureException(
-        "Failed to import BaseNotifier. This feature is only available in Airflow versions >= 2.6.0"
-    )
 
 if TYPE_CHECKING:
     from slack_sdk.http_retry import RetryHandler
@@ -53,6 +46,8 @@ class SlackNotifier(BaseNotifier):
     :param proxy: Proxy to make the Slack API call. Optional
     :param retry_handlers: List of handlers to customize retry logic in ``slack_sdk.WebClient``. Optional
     :param attachments: (legacy) A list of attachments to send with the message. Optional
+    :param unfurl_links: Option to indicate whether text url should unfurl. Optional
+    :param unfurl_media: Option to indicate whether media url should unfurl. Optional
     """
 
     template_fields = ("text", "channel", "username", "attachments", "blocks")
@@ -71,6 +66,8 @@ class SlackNotifier(BaseNotifier):
         proxy: str | None = None,
         timeout: int | None = None,
         retry_handlers: list[RetryHandler] | None = None,
+        unfurl_links: bool = True,
+        unfurl_media: bool = True,
     ):
         super().__init__()
         self.slack_conn_id = slack_conn_id
@@ -84,6 +81,8 @@ class SlackNotifier(BaseNotifier):
         self.timeout = timeout
         self.proxy = proxy
         self.retry_handlers = retry_handlers
+        self.unfurl_links = unfurl_links
+        self.unfurl_media = unfurl_media
 
     @cached_property
     def hook(self) -> SlackHook:
@@ -105,6 +104,8 @@ class SlackNotifier(BaseNotifier):
             "icon_url": self.icon_url,
             "attachments": json.dumps(self.attachments),
             "blocks": json.dumps(self.blocks),
+            "unfurl_links": self.unfurl_links,
+            "unfurl_media": self.unfurl_media,
         }
         self.hook.call("chat.postMessage", json=api_call_params)
 

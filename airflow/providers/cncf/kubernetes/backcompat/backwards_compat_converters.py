@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """Executes task in a Kubernetes POD."""
+
 from __future__ import annotations
 
 from kubernetes.client import ApiClient, models as k8s
@@ -69,21 +70,27 @@ def convert_port(port) -> k8s.V1ContainerPort:
     return _convert_kube_model_object(port, k8s.V1ContainerPort)
 
 
-def convert_env_vars(env_vars) -> list[k8s.V1EnvVar]:
+def convert_env_vars(env_vars: list[k8s.V1EnvVar] | dict[str, str]) -> list[k8s.V1EnvVar]:
     """
-    Convert a dictionary into a list of env_vars.
+    Coerce env var collection for kubernetes.
 
-    :param env_vars:
+    If the collection is a str-str dict, convert it into a list of ``V1EnvVar``s.
     """
     if isinstance(env_vars, dict):
-        res = []
-        for k, v in env_vars.items():
-            res.append(k8s.V1EnvVar(name=k, value=v))
-        return res
-    elif isinstance(env_vars, list):
+        return [k8s.V1EnvVar(name=k, value=v) for k, v in env_vars.items()]
+    return env_vars
+
+
+def convert_env_vars_or_raise_error(env_vars: list[k8s.V1EnvVar] | dict[str, str]) -> list[k8s.V1EnvVar]:
+    """
+    Separate function to convert env var collection for kubernetes and then raise an error if it is still the wrong type.
+
+    This is used after the template strings have been rendered.
+    """
+    env_vars = convert_env_vars(env_vars)
+    if isinstance(env_vars, list):
         return env_vars
-    else:
-        raise AirflowException(f"Expected dict or list, got {type(env_vars)}")
+    raise AirflowException(f"Expected dict or list, got {type(env_vars)}")
 
 
 def convert_pod_runtime_info_env(pod_runtime_info_envs) -> k8s.V1EnvVar:

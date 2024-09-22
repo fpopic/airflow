@@ -21,14 +21,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from airflow.providers.papermill.hooks.kernel import (
-    JUPYTER_KERNEL_CONTROL_PORT,
-    JUPYTER_KERNEL_HB_PORT,
-    JUPYTER_KERNEL_IOPUB_PORT,
-    JUPYTER_KERNEL_SHELL_PORT,
-    JUPYTER_KERNEL_STDIN_PORT,
-)
-from airflow.providers.papermill.operators.papermill import REMOTE_KERNEL_ENGINE, NoteBook, PapermillOperator
+from airflow.providers.papermill.operators.papermill import PapermillOperator
 from airflow.utils import timezone
 
 DEFAULT_DATE = timezone.datetime(2021, 1, 1)
@@ -40,6 +33,8 @@ class TestNoteBook:
     """Test NoteBook object."""
 
     def test_templated_fields(self):
+        from airflow.providers.papermill.operators.papermill import NoteBook
+
         assert hasattr(NoteBook, "template_fields")
         assert "parameters" in NoteBook.template_fields
 
@@ -56,24 +51,46 @@ class TestPapermillOperator:
             PapermillOperator(task_id="missing_input_nb", input_nb="foo-bar")
 
     @pytest.mark.parametrize(
-        "output_nb",
+        "output_nb_url, output_as_object",
         [
-            pytest.param(TEST_OUTPUT_URL, id="output-as-string"),
-            pytest.param(NoteBook(TEST_OUTPUT_URL), id="output-as-notebook-object"),
+            pytest.param(TEST_OUTPUT_URL, False, id="output-as-string"),
+            pytest.param(TEST_OUTPUT_URL, True, id="output-as-notebook-object"),
         ],
     )
     @pytest.mark.parametrize(
-        "input_nb",
+        "input_nb_url, input_as_object",
         [
-            pytest.param(TEST_INPUT_URL, id="input-as-string"),
-            pytest.param(NoteBook(TEST_INPUT_URL), id="input-as-notebook-object"),
+            pytest.param(TEST_INPUT_URL, False, id="input-as-string"),
+            pytest.param(TEST_INPUT_URL, True, id="input-as-notebook-object"),
         ],
     )
-    def test_notebooks_objects(self, input_nb, output_nb):
+    @patch("airflow.providers.papermill.operators.papermill.pm")
+    @patch("airflow.providers.papermill.operators.papermill.PapermillOperator.hook")
+    def test_notebooks_objects(
+        self,
+        mock_papermill,
+        mock_hook,
+        input_nb_url: str,
+        output_nb_url: str,
+        input_as_object: bool,
+        output_as_object: bool,
+    ):
         """Test different type of Input/Output notebooks arguments."""
+        from airflow.providers.papermill.operators.papermill import NoteBook, PapermillOperator
+
+        input_nb: NoteBook | str = NoteBook(input_nb_url) if input_as_object else input_nb_url
+        output_nb: NoteBook | str = NoteBook(output_nb_url) if output_as_object else output_nb_url
+
         op = PapermillOperator(task_id="test_notebooks_objects", input_nb=input_nb, output_nb=output_nb)
-        assert op.input_nb.url == TEST_INPUT_URL
-        assert op.output_nb.url == TEST_OUTPUT_URL
+
+        op.execute(context={})
+
+        assert op.input_nb.url == TEST_INPUT_URL  # type: ignore
+        assert op.output_nb.url == TEST_OUTPUT_URL  # type: ignore
+
+        # Test render Lineage inlets/outlets
+        assert op.inlets[0] == op.input_nb
+        assert op.outlets[0] == op.output_nb
 
     @patch("airflow.providers.papermill.operators.papermill.pm")
     def test_execute(self, mock_papermill):
@@ -82,6 +99,8 @@ class TestPapermillOperator:
         kernel_name = "python3"
         language_name = "python"
         parameters = {"msg": "hello_world", "train": 1}
+
+        from airflow.providers.papermill.operators.papermill import PapermillOperator
 
         op = PapermillOperator(
             input_nb=in_nb,
@@ -119,6 +138,8 @@ class TestPapermillOperator:
         conn.extra_dejson = {"session_key": "notebooks"}
         kernel_hook.return_value = conn
 
+        from airflow.providers.papermill.operators.papermill import PapermillOperator
+
         op = PapermillOperator(
             input_nb=in_nb,
             output_nb=out_nb,
@@ -131,6 +152,15 @@ class TestPapermillOperator:
         )
 
         op.execute(context={})
+
+        from airflow.providers.papermill.hooks.kernel import (
+            JUPYTER_KERNEL_CONTROL_PORT,
+            JUPYTER_KERNEL_HB_PORT,
+            JUPYTER_KERNEL_IOPUB_PORT,
+            JUPYTER_KERNEL_SHELL_PORT,
+            JUPYTER_KERNEL_STDIN_PORT,
+            REMOTE_KERNEL_ENGINE,
+        )
 
         mock_papermill.execute_notebook.assert_called_once_with(
             in_nb,
@@ -153,6 +183,8 @@ class TestPapermillOperator:
     @pytest.mark.db_test
     def test_render_template(self, create_task_instance_of_operator):
         """Test rendering fields."""
+        from airflow.providers.papermill.operators.papermill import PapermillOperator
+
         ti = create_task_instance_of_operator(
             PapermillOperator,
             input_nb="/tmp/{{ dag.dag_id }}.ipynb",
@@ -173,19 +205,9 @@ class TestPapermillOperator:
         task = ti.render_templates()
 
         # Test render Input/Output notebook attributes
-        assert task.input_nb.url == "/tmp/test_render_template.ipynb"
-        assert task.input_nb.parameters == {
-            "msgs": "dag id is test_render_template!",
-            "test_dt": DEFAULT_DATE.date().isoformat(),
-        }
-        assert task.output_nb.url == "/tmp/out-test_render_template.ipynb"
-        assert task.output_nb.parameters == {}
+        assert task.input_nb == "/tmp/test_render_template.ipynb"
+        assert task.output_nb == "/tmp/out-test_render_template.ipynb"
 
         # Test render other templated attributes
-        assert task.parameters == task.input_nb.parameters
         assert "python3" == task.kernel_name
         assert "python" == task.language_name
-
-        # Test render Lineage inlets/outlets
-        assert task.inlets[0] == task.input_nb
-        assert task.outlets[0] == task.output_nb

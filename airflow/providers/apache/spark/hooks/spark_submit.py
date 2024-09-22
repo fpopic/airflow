@@ -17,11 +17,16 @@
 # under the License.
 from __future__ import annotations
 
+import base64
 import contextlib
 import os
 import re
+import shutil
 import subprocess
+import tempfile
 import time
+import uuid
+from pathlib import Path
 from typing import Any, Iterator
 
 from airflow.configuration import conf as airflow_conf
@@ -33,7 +38,8 @@ from airflow.utils.log.logging_mixin import LoggingMixin
 with contextlib.suppress(ImportError, NameError):
     from airflow.providers.cncf.kubernetes import kube_client
 
-ALLOWED_SPARK_BINARIES = ["spark-submit", "spark2-submit", "spark3-submit"]
+DEFAULT_SPARK_BINARY = "spark-submit"
+ALLOWED_SPARK_BINARIES = [DEFAULT_SPARK_BINARY, "spark2-submit", "spark3-submit"]
 
 
 class SparkSubmitHook(BaseHook, LoggingMixin):
@@ -41,7 +47,7 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
     Wrap the spark-submit binary to kick off a spark-submit job; requires "spark-submit" binary in the PATH.
 
     :param conf: Arbitrary Spark configuration properties
-    :param spark_conn_id: The :ref:`spark connection id <howto/connection:spark>` as configured
+    :param spark_conn_id: The :ref:`spark connection id <howto/connection:spark-submit>` as configured
         in Airflow administration. When an invalid connection_id is supplied, it will default
         to yarn.
     :param files: Upload additional files to the executor running the job, separated by a
@@ -66,7 +72,9 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
     :param executor_memory: Memory per executor (e.g. 1000M, 2G) (Default: 1G)
     :param driver_memory: Memory allocated to the driver (e.g. 1000M, 2G) (Default: 1G)
     :param keytab: Full path to the file that contains the keytab
+                        (will overwrite any keytab defined in the connection's extra JSON)
     :param principal: The name of the kerberos principal used for keytab
+                        (will overwrite any principal defined in the connection's extra JSON)
     :param proxy_user: User to impersonate when submitting the application
     :param name: Name of the job (default airflow-spark)
     :param num_executors: Number of executors to launch
@@ -78,6 +86,13 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
     :param verbose: Whether to pass the verbose flag to spark-submit process for debugging
     :param spark_binary: The command to use for spark submit.
                          Some distros may use spark2-submit or spark3-submit.
+                         (will overwrite any spark_binary defined in the connection's extra JSON)
+    :param properties_file: Path to a file from which to load extra properties. If not
+                              specified, this will look for conf/spark-defaults.conf.
+    :param yarn_queue: The name of the YARN queue to which the application is submitted.
+                        (will overwrite any yarn queue defined in the connection's extra JSON)
+    :param deploy_mode: Whether to deploy your driver on the worker nodes (cluster) or locally as an client.
+                        (will overwrite any deployment mode defined in the connection's extra JSON)
     :param use_krb5ccache: if True, configure spark to use ticket cache instead of relying
         on keytab for Kerberos login
     """
@@ -87,12 +102,60 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
     conn_type = "spark"
     hook_name = "Spark"
 
-    @staticmethod
-    def get_ui_field_behaviour() -> dict[str, Any]:
-        """Return custom field behaviour."""
+    @classmethod
+    def get_ui_field_behaviour(cls) -> dict[str, Any]:
+        """Return custom UI field behaviour for Spark connection."""
         return {
-            "hidden_fields": ["schema", "login", "password"],
+            "hidden_fields": ["schema", "login", "password", "extra"],
             "relabeling": {},
+            "placeholders": {
+                "keytab": "<base64 encoded Keytab Content>",
+            },
+        }
+
+    @classmethod
+    def get_connection_form_widgets(cls) -> dict[str, Any]:
+        """Return connection widgets to add to Spark connection form."""
+        from flask_appbuilder.fieldwidgets import BS3PasswordFieldWidget, BS3TextFieldWidget
+        from flask_babel import lazy_gettext
+        from wtforms import PasswordField, StringField
+        from wtforms.validators import Optional, any_of
+
+        return {
+            "queue": StringField(
+                lazy_gettext("YARN queue"),
+                widget=BS3TextFieldWidget(),
+                description="Default YARN queue to use",
+                validators=[Optional()],
+            ),
+            "deploy-mode": StringField(
+                lazy_gettext("Deploy mode"),
+                widget=BS3TextFieldWidget(),
+                description="Must be client or cluster",
+                validators=[any_of(["client", "cluster"])],
+                default="client",
+            ),
+            "spark-binary": StringField(
+                lazy_gettext("Spark binary"),
+                widget=BS3TextFieldWidget(),
+                description=f"Must be one of: {', '.join(ALLOWED_SPARK_BINARIES)}",
+                validators=[any_of(ALLOWED_SPARK_BINARIES)],
+                default=DEFAULT_SPARK_BINARY,
+            ),
+            "namespace": StringField(
+                lazy_gettext("Kubernetes namespace"), widget=BS3TextFieldWidget(), validators=[Optional()]
+            ),
+            "principal": StringField(
+                lazy_gettext("Principal"),
+                widget=BS3TextFieldWidget(),
+                validators=[Optional()],
+            ),
+            "keytab": PasswordField(
+                lazy_gettext("Keytab"),
+                widget=BS3PasswordFieldWidget(),
+                description="Run the command `base64 <your-keytab-path>` and use its output.",
+                validators=[Optional()],
+            ),
         }
 
     def __init__(
@@ -122,6 +185,9 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
         env_vars: dict[str, Any] | None = None,
         verbose: bool = False,
         spark_binary: str | None = None,
+        properties_file: str | None = None,
+        yarn_queue: str | None = None,
+        deploy_mode: str | None = None,
         *,
         use_krb5ccache: bool = False,
     ) -> None:
@@ -154,7 +220,11 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
         self._submit_sp: Any | None = None
         self._yarn_application_id: str | None = None
         self._kubernetes_driver_pod: str | None = None
+        self._kubernetes_application_id: str | None = None
         self.spark_binary = spark_binary
+        self._properties_file = properties_file
+        self._yarn_queue = yarn_queue
+        self._deploy_mode = deploy_mode
         self._connection = self._resolve_connection()
         self._is_yarn = "yarn" in self._connection["master"]
         self._is_kubernetes = "k8s" in self._connection["master"]
@@ -170,7 +240,8 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
         self._env: dict[str, Any] | None = None
 
     def _resolve_should_track_driver_status(self) -> bool:
-        """Check if we should track the driver status.
+        """
+        Check if we should track the driver status.
 
         If so, we should send subsequent spark-submit status requests after the
         initial spark-submit request.
@@ -183,10 +254,12 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
         # Build from connection master or default to yarn if not available
         conn_data = {
             "master": "yarn",
-            "queue": None,
+            "queue": None,  # yarn queue
             "deploy_mode": None,
-            "spark_binary": self.spark_binary or "spark-submit",
+            "spark_binary": self.spark_binary or DEFAULT_SPARK_BINARY,
             "namespace": None,
+            "principal": self._principal,
+            "keytab": self._keytab,
         }
 
         try:
@@ -200,10 +273,10 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
 
             # Determine optional yarn queue from the extra field
             extra = conn.extra_dejson
-            conn_data["queue"] = extra.get("queue")
-            conn_data["deploy_mode"] = extra.get("deploy-mode")
+            conn_data["queue"] = self._yarn_queue if self._yarn_queue else extra.get("queue")
+            conn_data["deploy_mode"] = self._deploy_mode if self._deploy_mode else extra.get("deploy-mode")
             if not self.spark_binary:
-                self.spark_binary = extra.get("spark-binary", "spark-submit")
+                self.spark_binary = extra.get("spark-binary", DEFAULT_SPARK_BINARY)
                 if self.spark_binary is not None and self.spark_binary not in ALLOWED_SPARK_BINARIES:
                     raise RuntimeError(
                         f"The spark-binary extra can be on of {ALLOWED_SPARK_BINARIES} and it"
@@ -219,6 +292,14 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
                 )
             conn_data["spark_binary"] = self.spark_binary
             conn_data["namespace"] = extra.get("namespace")
+            if conn_data["principal"] is None:
+                conn_data["principal"] = extra.get("principal")
+            if conn_data["keytab"] is None:
+                base64_keytab = extra.get("keytab")
+                if base64_keytab is not None:
+                    conn_data["keytab"] = self._create_keytab_path_from_base64_keytab(
+                        base64_keytab, conn_data["principal"]
+                    )
         except AirflowException:
             self.log.info(
                 "Could not load connection string %s, defaulting to %s", self._conn_id, conn_data["master"]
@@ -231,6 +312,45 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
 
     def get_conn(self) -> Any:
         pass
+
+    def _create_keytab_path_from_base64_keytab(self, base64_keytab: str, principal: str | None) -> str:
+        _uuid = uuid.uuid4()
+        temp_dir_path = Path(tempfile.gettempdir()).resolve()
+        temp_file_name = f"airflow_keytab-{principal or _uuid}"
+
+        keytab_path = temp_dir_path / temp_file_name
+        staging_path = temp_dir_path / f".{temp_file_name}.{_uuid}"
+
+        try:
+            keytab = base64.b64decode(base64_keytab)
+        except Exception as err:
+            self.log.error("Failed to decode base64 keytab: %s", err)
+            raise AirflowException("Failed to decode base64 keytab") from err
+
+        # If a keytab file with the same content exists, return its path for the --keytab argument.
+        if keytab_path.exists():
+            with open(keytab_path, "rb") as f:
+                existing_keytab = f.read()
+            if existing_keytab == keytab:
+                self.log.info("Keytab file already exists and is the same as the provided keytab")
+                return str(keytab_path)
+
+        # Generate a new keytab file from the base64 encoded keytab value to use as a --keytab argument.
+        try:
+            with open(staging_path, "wb") as f:
+                self.log.info("Saving keytab to %s", staging_path)
+                f.write(keytab)
+
+            self.log.info("Moving keytab from %s to %s", staging_path, keytab_path)
+            shutil.move(str(staging_path), str(keytab_path))
+            return str(keytab_path)
+        except Exception as err:
+            self.log.error("Failed to save keytab: %s", err)
+            raise AirflowException("Failed to save keytab") from err
+        finally:
+            if staging_path.exists():
+                self.log.info("Removing staging keytab file: %s", staging_path)
+                staging_path.unlink()
 
     def _get_spark_binary_path(self) -> list[str]:
         # Assume that spark-submit is present in the path to the executing user
@@ -292,6 +412,8 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
                 "--conf",
                 f"spark.kubernetes.namespace={self._connection['namespace']}",
             ]
+        if self._properties_file:
+            connection_cmd += ["--properties-file", self._properties_file]
         if self._files:
             connection_cmd += ["--files", self._files]
         if self._py_files:
@@ -318,10 +440,10 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
             connection_cmd += ["--executor-memory", self._executor_memory]
         if self._driver_memory:
             connection_cmd += ["--driver-memory", self._driver_memory]
-        if self._keytab:
-            connection_cmd += ["--keytab", self._keytab]
-        if self._principal:
-            connection_cmd += ["--principal", self._principal]
+        if self._connection["keytab"]:
+            connection_cmd += ["--keytab", self._connection["keytab"]]
+        if self._connection["principal"]:
+            connection_cmd += ["--principal", self._connection["principal"]]
         if self._use_krb5ccache:
             if not os.getenv("KRB5CCNAME"):
                 raise AirflowException(
@@ -395,7 +517,8 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
         return connection_cmd
 
     def _resolve_kerberos_principal(self, principal: str | None) -> str:
-        """Resolve kerberos principal if airflow > 2.8.
+        """
+        Resolve kerberos principal if airflow > 2.8.
 
         TODO: delete when min airflow version >= 2.8 and import directly from airflow.security.kerberos
         """
@@ -494,15 +617,20 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
                 match = re.search("application[0-9_]+", line)
                 if match:
                     self._yarn_application_id = match.group(0)
-                    self.log.info("Identified spark driver id: %s", self._yarn_application_id)
+                    self.log.info("Identified spark application id: %s", self._yarn_application_id)
 
             # If we run Kubernetes cluster mode, we want to extract the driver pod id
             # from the logs so we can kill the application when we stop it unexpectedly
             elif self._is_kubernetes:
-                match = re.search(r"\s*pod name: ((.+?)-([a-z0-9]+)-driver)", line)
-                if match:
-                    self._kubernetes_driver_pod = match.group(1)
+                match_driver_pod = re.search(r"\s*pod name: ((.+?)-([a-z0-9]+)-driver$)", line)
+                if match_driver_pod:
+                    self._kubernetes_driver_pod = match_driver_pod.group(1)
                     self.log.info("Identified spark driver pod: %s", self._kubernetes_driver_pod)
+
+                match_application_id = re.search(r"\s*spark-app-selector -> (spark-([a-z0-9]+)), ", line)
+                if match_application_id:
+                    self._kubernetes_application_id = match_application_id.group(1)
+                    self.log.info("Identified spark application id: %s", self._kubernetes_application_id)
 
                 # Store the Spark Exit code
                 match_exit_code = re.search(r"\s*[eE]xit code: (\d+)", line)
@@ -650,11 +778,13 @@ class SparkSubmitHook(BaseHook, LoggingMixin):
             if self._yarn_application_id:
                 kill_cmd = f"yarn application -kill {self._yarn_application_id}".split()
                 env = {**os.environ, **(self._env or {})}
-                if self._keytab is not None and self._principal is not None:
+                if self._connection["keytab"] is not None and self._connection["principal"] is not None:
                     # we are ignoring renewal failures from renew_from_kt
                     # here as the failure could just be due to a non-renewable ticket,
                     # we still attempt to kill the yarn application
-                    renew_from_kt(self._principal, self._keytab, exit_on_fail=False)
+                    renew_from_kt(
+                        self._connection["principal"], self._connection["keytab"], exit_on_fail=False
+                    )
                     env = os.environ.copy()
                     ccacche = airflow_conf.get_mandatory_value("kerberos", "ccache")
                     env["KRB5CCNAME"] = ccacche

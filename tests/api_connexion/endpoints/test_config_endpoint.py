@@ -25,7 +25,7 @@ from airflow.security import permissions
 from tests.test_utils.api_connexion_utils import assert_401, create_user, delete_user
 from tests.test_utils.config import conf_vars
 
-pytestmark = pytest.mark.db_test
+pytestmark = [pytest.mark.db_test, pytest.mark.skip_if_database_isolation_mode]
 
 
 MOCK_CONF = {
@@ -39,10 +39,13 @@ MOCK_CONF = {
 }
 
 MOCK_CONF_WITH_SENSITIVE_VALUE = {
-    "core": {"parallelism": "1024", "sql_alchemy_conn": "mock_conn"},
+    "core": {"parallelism": "1024"},
     "smtp": {
         "smtp_host": "localhost",
         "smtp_mail_from": "airflow@example.com",
+    },
+    "database": {
+        "sql_alchemy_conn": "mock_conn",
     },
 }
 
@@ -253,10 +256,10 @@ class TestGetValue:
     @pytest.mark.parametrize(
         "section, option",
         [
-            ("core", "sql_alchemy_conn"),
-            ("core", "SQL_ALCHEMY_CONN"),
-            ("corE", "sql_alchemy_conn"),
-            ("CORE", "sql_alchemy_conn"),
+            ("database", "sql_alchemy_conn"),
+            ("database", "SQL_ALCHEMY_CONN"),
+            ("databasE", "sql_alchemy_conn"),
+            ("DATABASE", "sql_alchemy_conn"),
         ],
     )
     def test_should_respond_200_text_plain_with_non_sensitive_only(self, mock_as_dict, section, option):

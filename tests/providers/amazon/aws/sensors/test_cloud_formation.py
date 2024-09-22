@@ -21,7 +21,7 @@ from unittest.mock import patch
 
 import boto3
 import pytest
-from moto import mock_cloudformation
+from moto import mock_aws
 
 from airflow.providers.amazon.aws.sensors.cloud_formation import (
     CloudFormationCreateStackSensor,
@@ -36,11 +36,35 @@ def mocked_hook_client():
 
 
 class TestCloudFormationCreateStackSensor:
-    @mock_cloudformation
+    @mock_aws
     def setup_method(self, method):
         self.client = boto3.client("cloudformation", region_name="us-east-1")
 
-    @mock_cloudformation
+    def test_init(self):
+        sensor = CloudFormationCreateStackSensor(
+            task_id="cf_create_stack_init",
+            stack_name="fake-stack",
+            # Generic hooks parameters
+            aws_conn_id="fake-conn-id",
+            region_name="eu-central-1",
+            verify=False,
+            botocore_config={"read_timeout": 42},
+        )
+        assert sensor.hook.client_type == "cloudformation"
+        assert sensor.hook.resource_type is None
+        assert sensor.hook.aws_conn_id == "fake-conn-id"
+        assert sensor.hook._region_name == "eu-central-1"
+        assert sensor.hook._verify is False
+        assert sensor.hook._config is not None
+        assert sensor.hook._config.read_timeout == 42
+
+        sensor = CloudFormationCreateStackSensor(task_id="cf_create_stack_init", stack_name="fake-stack")
+        assert sensor.hook.aws_conn_id == "aws_default"
+        assert sensor.hook._region_name is None
+        assert sensor.hook._verify is None
+        assert sensor.hook._config is None
+
+    @mock_aws
     def test_poke(self):
         self.client.create_stack(StackName="foobar", TemplateBody='{"Resources": {}}')
         op = CloudFormationCreateStackSensor(task_id="task", stack_name="foobar")
@@ -59,11 +83,35 @@ class TestCloudFormationCreateStackSensor:
 
 
 class TestCloudFormationDeleteStackSensor:
-    @mock_cloudformation
+    @mock_aws
     def setup_method(self, method):
         self.client = boto3.client("cloudformation", region_name="us-east-1")
 
-    @mock_cloudformation
+    def test_init(self):
+        sensor = CloudFormationDeleteStackSensor(
+            task_id="cf_delete_stack_init",
+            stack_name="fake-stack",
+            # Generic hooks parameters
+            aws_conn_id="fake-conn-id",
+            region_name="ca-west-1",
+            verify=True,
+            botocore_config={"read_timeout": 42},
+        )
+        assert sensor.hook.client_type == "cloudformation"
+        assert sensor.hook.resource_type is None
+        assert sensor.hook.aws_conn_id == "fake-conn-id"
+        assert sensor.hook._region_name == "ca-west-1"
+        assert sensor.hook._verify is True
+        assert sensor.hook._config is not None
+        assert sensor.hook._config.read_timeout == 42
+
+        sensor = CloudFormationDeleteStackSensor(task_id="cf_delete_stack_init", stack_name="fake-stack")
+        assert sensor.hook.aws_conn_id == "aws_default"
+        assert sensor.hook._region_name is None
+        assert sensor.hook._verify is None
+        assert sensor.hook._config is None
+
+    @mock_aws
     def test_poke(self):
         stack_name = "foobar"
         self.client.create_stack(StackName=stack_name, TemplateBody='{"Resources": {}}')
@@ -82,7 +130,7 @@ class TestCloudFormationDeleteStackSensor:
         with pytest.raises(ValueError, match="Stack foo in bad state: bar"):
             op.poke({})
 
-    @mock_cloudformation
+    @mock_aws
     def test_poke_stack_does_not_exist(self):
         op = CloudFormationDeleteStackSensor(task_id="task", stack_name="foo")
         assert op.poke({})

@@ -16,6 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """This module contains a Google Cloud Vertex AI hook."""
+
 from __future__ import annotations
 
 import warnings
@@ -35,6 +36,7 @@ from google.cloud.aiplatform import (
 from google.cloud.aiplatform_v1 import JobServiceClient, PipelineServiceClient
 
 from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning
+from airflow.providers.google.common.deprecated import deprecated
 from airflow.providers.google.common.hooks.base_google import GoogleBaseHook
 
 if TYPE_CHECKING:
@@ -74,7 +76,7 @@ class AutoMLHook(GoogleBaseHook):
         self,
         region: str | None = None,
     ) -> PipelineServiceClient:
-        """Returns PipelineServiceClient."""
+        """Return PipelineServiceClient."""
         if region and region != "global":
             client_options = ClientOptions(api_endpoint=f"{region}-aiplatform.googleapis.com:443")
         else:
@@ -88,7 +90,7 @@ class AutoMLHook(GoogleBaseHook):
         self,
         region: str | None = None,
     ) -> JobServiceClient:
-        """Returns JobServiceClient."""
+        """Return JobServiceClient."""
         if region and region != "global":
             client_options = ClientOptions(api_endpoint=f"{region}-aiplatform.googleapis.com:443")
         else:
@@ -113,7 +115,7 @@ class AutoMLHook(GoogleBaseHook):
         training_encryption_spec_key_name: str | None = None,
         model_encryption_spec_key_name: str | None = None,
     ) -> AutoMLTabularTrainingJob:
-        """Returns AutoMLTabularTrainingJob object."""
+        """Return AutoMLTabularTrainingJob object."""
         return AutoMLTabularTrainingJob(
             display_name=display_name,
             optimization_prediction_type=optimization_prediction_type,
@@ -142,7 +144,7 @@ class AutoMLHook(GoogleBaseHook):
         training_encryption_spec_key_name: str | None = None,
         model_encryption_spec_key_name: str | None = None,
     ) -> AutoMLForecastingTrainingJob:
-        """Returns AutoMLForecastingTrainingJob object."""
+        """Return AutoMLForecastingTrainingJob object."""
         return AutoMLForecastingTrainingJob(
             display_name=display_name,
             optimization_objective=optimization_objective,
@@ -169,7 +171,7 @@ class AutoMLHook(GoogleBaseHook):
         training_encryption_spec_key_name: str | None = None,
         model_encryption_spec_key_name: str | None = None,
     ) -> AutoMLImageTrainingJob:
-        """Returns AutoMLImageTrainingJob object."""
+        """Return AutoMLImageTrainingJob object."""
         return AutoMLImageTrainingJob(
             display_name=display_name,
             prediction_type=prediction_type,
@@ -184,6 +186,11 @@ class AutoMLHook(GoogleBaseHook):
             model_encryption_spec_key_name=model_encryption_spec_key_name,
         )
 
+    @deprecated(
+        planned_removal_date="June 15, 2025",
+        category=AirflowProviderDeprecationWarning,
+        reason="Deprecation of AutoMLText API",
+    )
     def get_auto_ml_text_training_job(
         self,
         display_name: str,
@@ -196,7 +203,12 @@ class AutoMLHook(GoogleBaseHook):
         training_encryption_spec_key_name: str | None = None,
         model_encryption_spec_key_name: str | None = None,
     ) -> AutoMLTextTrainingJob:
-        """Returns AutoMLTextTrainingJob object."""
+        """
+        Return AutoMLTextTrainingJob object.
+
+        WARNING: Text creation API is deprecated since September 15, 2024
+        (https://cloud.google.com/vertex-ai/docs/tutorials/text-classification-automl/overview).
+        """
         return AutoMLTextTrainingJob(
             display_name=display_name,
             prediction_type=prediction_type,
@@ -221,7 +233,7 @@ class AutoMLHook(GoogleBaseHook):
         training_encryption_spec_key_name: str | None = None,
         model_encryption_spec_key_name: str | None = None,
     ) -> AutoMLVideoTrainingJob:
-        """Returns AutoMLVideoTrainingJob object."""
+        """Return AutoMLVideoTrainingJob object."""
         return AutoMLVideoTrainingJob(
             display_name=display_name,
             prediction_type=prediction_type,
@@ -236,16 +248,16 @@ class AutoMLHook(GoogleBaseHook):
 
     @staticmethod
     def extract_model_id(obj: dict) -> str:
-        """Returns unique id of the Model."""
+        """Return unique id of the Model."""
         return obj["name"].rpartition("/")[-1]
 
     @staticmethod
     def extract_training_id(resource_name: str) -> str:
-        """Returns unique id of the Training pipeline."""
+        """Return unique id of the Training pipeline."""
         return resource_name.rpartition("/")[-1]
 
     def wait_for_operation(self, operation: Operation, timeout: float | None = None):
-        """Waits for long-lasting operation to complete."""
+        """Wait for long-lasting operation to complete."""
         try:
             return operation.result(timeout=timeout)
         except Exception:
@@ -550,6 +562,8 @@ class AutoMLHook(GoogleBaseHook):
         is_default_version: bool | None = None,
         model_version_aliases: list[str] | None = None,
         model_version_description: str | None = None,
+        window_stride_length: int | None = None,
+        window_max_count: int | None = None,
     ) -> tuple[models.Model | None, str]:
         """
         Create an AutoML Forecasting Training Job.
@@ -702,6 +716,10 @@ class AutoMLHook(GoogleBaseHook):
         :param sync: Whether to execute this method synchronously. If False, this method will be executed in
             concurrent Future and any downstream object will be immediately returned and synced when the
             Future has completed.
+        :param window_stride_length: Optional. Step length used to generate input examples. Every
+            ``window_stride_length`` rows will be used to generate a sliding window.
+        :param window_max_count: Optional. Number of rows that should be used to generate input examples. If the
+            total row count is larger than this number, the input data will be randomly sampled to hit the count.
         """
         if column_transformations:
             warnings.warn(
@@ -757,6 +775,8 @@ class AutoMLHook(GoogleBaseHook):
             is_default_version=is_default_version,
             model_version_aliases=model_version_aliases,
             model_version_description=model_version_description,
+            window_stride_length=window_stride_length,
+            window_max_count=window_max_count,
         )
         training_id = self.extract_training_id(self._job.resource_name)
         if model:
@@ -971,6 +991,11 @@ class AutoMLHook(GoogleBaseHook):
         return model, training_id
 
     @GoogleBaseHook.fallback_to_default_project_id
+    @deprecated(
+        planned_removal_date="September 15, 2025",
+        category=AirflowProviderDeprecationWarning,
+        reason="Deprecation of AutoMLText API",
+    )
     def create_auto_ml_text_training_job(
         self,
         project_id: str,
@@ -999,6 +1024,9 @@ class AutoMLHook(GoogleBaseHook):
     ) -> tuple[models.Model | None, str]:
         """
         Create an AutoML Text Training Job.
+
+        WARNING: Text creation API is deprecated since September 15, 2024
+        (https://cloud.google.com/vertex-ai/docs/tutorials/text-classification-automl/overview).
 
         :param project_id: Required. Project to run training in.
         :param region: Required. Location to run training in.
@@ -1092,13 +1120,14 @@ class AutoMLHook(GoogleBaseHook):
             concurrent Future and any downstream object will be immediately returned and synced when the
             Future has completed.
         """
-        self._job = self.get_auto_ml_text_training_job(
-            project=project_id,
-            location=region,
+        self._job = AutoMLTextTrainingJob(
             display_name=display_name,
             prediction_type=prediction_type,
             multi_label=multi_label,
             sentiment_max=sentiment_max,
+            project=project_id,
+            location=region,
+            credentials=self.get_credentials(),
             labels=labels,
             training_encryption_spec_key_name=training_encryption_spec_key_name,
             model_encryption_spec_key_name=model_encryption_spec_key_name,
@@ -1108,13 +1137,13 @@ class AutoMLHook(GoogleBaseHook):
             raise AirflowException("AutoMLTextTrainingJob was not created")
 
         model = self._job.run(
-            dataset=dataset,
-            training_fraction_split=training_fraction_split,
-            validation_fraction_split=validation_fraction_split,
+            dataset=dataset,  # type: ignore[arg-type]
+            training_fraction_split=training_fraction_split,  # type: ignore[call-arg]
+            validation_fraction_split=validation_fraction_split,  # type: ignore[call-arg]
             test_fraction_split=test_fraction_split,
             training_filter_split=training_filter_split,
             validation_filter_split=validation_filter_split,
-            test_filter_split=test_filter_split,
+            test_filter_split=test_filter_split,  # type: ignore[call-arg]
             model_display_name=model_display_name,
             model_labels=model_labels,
             sync=sync,
@@ -1301,7 +1330,7 @@ class AutoMLHook(GoogleBaseHook):
         metadata: Sequence[tuple[str, str]] = (),
     ) -> Operation:
         """
-        Deletes a TrainingPipeline.
+        Delete a TrainingPipeline.
 
         :param project_id: Required. The ID of the Google Cloud project that the service belongs to.
         :param region: Required. The ID of the Google Cloud region that the service belongs to.
@@ -1334,7 +1363,7 @@ class AutoMLHook(GoogleBaseHook):
         metadata: Sequence[tuple[str, str]] = (),
     ) -> TrainingPipeline:
         """
-        Gets a TrainingPipeline.
+        Get a TrainingPipeline.
 
         :param project_id: Required. The ID of the Google Cloud project that the service belongs to.
         :param region: Required. The ID of the Google Cloud region that the service belongs to.
@@ -1370,7 +1399,7 @@ class AutoMLHook(GoogleBaseHook):
         metadata: Sequence[tuple[str, str]] = (),
     ) -> ListTrainingPipelinesPager:
         """
-        Lists TrainingPipelines in a Location.
+        List TrainingPipelines in a Location.
 
         :param project_id: Required. The ID of the Google Cloud project that the service belongs to.
         :param region: Required. The ID of the Google Cloud region that the service belongs to.

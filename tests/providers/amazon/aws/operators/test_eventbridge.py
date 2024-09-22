@@ -29,6 +29,7 @@ from airflow.providers.amazon.aws.operators.eventbridge import (
     EventBridgePutEventsOperator,
     EventBridgePutRuleOperator,
 )
+from tests.providers.amazon.aws.utils.test_template_fields import validate_template_fields
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -41,12 +42,28 @@ RULE_NAME = "match_s3_events"
 
 class TestEventBridgePutEventsOperator:
     def test_init(self):
-        operator = EventBridgePutEventsOperator(
+        op = EventBridgePutEventsOperator(
             task_id="put_events_job",
             entries=ENTRIES,
+            aws_conn_id="fake-conn-id",
+            region_name="eu-central-1",
+            verify="/spam/egg.pem",
+            botocore_config={"read_timeout": 42},
         )
+        assert op.entries == ENTRIES
+        assert op.hook.client_type == "events"
+        assert op.hook.resource_type is None
+        assert op.hook.aws_conn_id == "fake-conn-id"
+        assert op.hook._region_name == "eu-central-1"
+        assert op.hook._verify == "/spam/egg.pem"
+        assert op.hook._config is not None
+        assert op.hook._config.read_timeout == 42
 
-        assert operator.entries == ENTRIES
+        op = EventBridgePutEventsOperator(task_id="put_events_job", entries=ENTRIES)
+        assert op.hook.aws_conn_id == "aws_default"
+        assert op.hook._region_name is None
+        assert op.hook._verify is None
+        assert op.hook._config is None
 
     @mock.patch.object(EventBridgeHook, "conn")
     def test_execute(self, mock_conn: MagicMock):
@@ -80,14 +97,41 @@ class TestEventBridgePutEventsOperator:
         with pytest.raises(AirflowException):
             operator.execute(context={})
 
+    def test_template_fields(self):
+        operator = EventBridgePutEventsOperator(
+            task_id="failed_put_events_job",
+            entries=ENTRIES,
+        )
+        validate_template_fields(operator)
+
 
 class TestEventBridgePutRuleOperator:
     def test_init(self):
-        operator = EventBridgePutRuleOperator(
+        op = EventBridgePutRuleOperator(
+            task_id="events_put_rule_job",
+            name=RULE_NAME,
+            event_pattern=EVENT_PATTERN,
+            aws_conn_id="fake-conn-id",
+            region_name="eu-west-1",
+            verify="/spam/egg.pem",
+            botocore_config={"read_timeout": 42},
+        )
+        assert op.event_pattern == EVENT_PATTERN
+        assert op.hook.client_type == "events"
+        assert op.hook.resource_type is None
+        assert op.hook.aws_conn_id == "fake-conn-id"
+        assert op.hook._region_name == "eu-west-1"
+        assert op.hook._verify == "/spam/egg.pem"
+        assert op.hook._config is not None
+        assert op.hook._config.read_timeout == 42
+
+        op = EventBridgePutRuleOperator(
             task_id="events_put_rule_job", name=RULE_NAME, event_pattern=EVENT_PATTERN
         )
-
-        assert operator.event_pattern == EVENT_PATTERN
+        assert op.hook.aws_conn_id == "aws_default"
+        assert op.hook._region_name is None
+        assert op.hook._verify is None
+        assert op.hook._config is None
 
     @mock.patch.object(EventBridgeHook, "conn")
     def test_execute(self, mock_conn: MagicMock):
@@ -114,15 +158,37 @@ class TestEventBridgePutRuleOperator:
         with pytest.raises(ValueError):
             operator.execute(None)
 
+    def test_template_fields(self):
+        operator = EventBridgePutRuleOperator(
+            task_id="events_put_rule_job", name=RULE_NAME, event_pattern=EVENT_PATTERN
+        )
+        validate_template_fields(operator)
+
 
 class TestEventBridgeEnableRuleOperator:
     def test_init(self):
-        operator = EventBridgeDisableRuleOperator(
+        op = EventBridgeEnableRuleOperator(
             task_id="enable_rule_task",
             name=RULE_NAME,
+            aws_conn_id="fake-conn-id",
+            region_name="us-west-1",
+            verify=False,
+            botocore_config={"read_timeout": 42},
         )
+        assert op.name == RULE_NAME
+        assert op.hook.client_type == "events"
+        assert op.hook.resource_type is None
+        assert op.hook.aws_conn_id == "fake-conn-id"
+        assert op.hook._region_name == "us-west-1"
+        assert op.hook._verify is False
+        assert op.hook._config is not None
+        assert op.hook._config.read_timeout == 42
 
-        assert operator.name == RULE_NAME
+        op = EventBridgeEnableRuleOperator(task_id="enable_rule_task", name=RULE_NAME)
+        assert op.hook.aws_conn_id == "aws_default"
+        assert op.hook._region_name is None
+        assert op.hook._verify is None
+        assert op.hook._config is None
 
     @mock.patch.object(EventBridgeHook, "conn")
     def test_enable_rule(self, mock_conn: MagicMock):
@@ -134,15 +200,38 @@ class TestEventBridgeEnableRuleOperator:
         enable_rule.execute(context={})
         mock_conn.enable_rule.assert_called_with(Name=RULE_NAME)
 
+    def test_template_fields(self):
+        operator = EventBridgeEnableRuleOperator(
+            task_id="events_enable_rule_job",
+            name=RULE_NAME,
+        )
+        validate_template_fields(operator)
+
 
 class TestEventBridgeDisableRuleOperator:
     def test_init(self):
-        operator = EventBridgeDisableRuleOperator(
+        op = EventBridgeDisableRuleOperator(
             task_id="disable_rule_task",
             name=RULE_NAME,
+            aws_conn_id="fake-conn-id",
+            region_name="ca-west-1",
+            verify=True,
+            botocore_config={"read_timeout": 42},
         )
+        assert op.name == RULE_NAME
+        assert op.hook.client_type == "events"
+        assert op.hook.resource_type is None
+        assert op.hook.aws_conn_id == "fake-conn-id"
+        assert op.hook._region_name == "ca-west-1"
+        assert op.hook._verify is True
+        assert op.hook._config is not None
+        assert op.hook._config.read_timeout == 42
 
-        assert operator.name == RULE_NAME
+        op = EventBridgeDisableRuleOperator(task_id="disable_rule_task", name=RULE_NAME)
+        assert op.hook.aws_conn_id == "aws_default"
+        assert op.hook._region_name is None
+        assert op.hook._verify is None
+        assert op.hook._config is None
 
     @mock.patch.object(EventBridgeHook, "conn")
     def test_disable_rule(self, mock_conn: MagicMock):
@@ -153,3 +242,10 @@ class TestEventBridgeDisableRuleOperator:
 
         disable_rule.execute(context={})
         mock_conn.disable_rule.assert_called_with(Name=RULE_NAME)
+
+    def test_template_fields(self):
+        operator = EventBridgeDisableRuleOperator(
+            task_id="events_disable_rule_job",
+            name=RULE_NAME,
+        )
+        validate_template_fields(operator)

@@ -22,6 +22,7 @@ This module contains Base AWS Hook.
     For more information on how to use this hook, take a look at the guide:
     :ref:`howto/connection:aws`
 """
+
 from __future__ import annotations
 
 import datetime
@@ -29,7 +30,6 @@ import inspect
 import json
 import logging
 import os
-import warnings
 from copy import deepcopy
 from functools import cached_property, wraps
 from pathlib import Path
@@ -44,6 +44,7 @@ import tenacity
 from botocore.config import Config
 from botocore.waiter import Waiter, WaiterModel
 from dateutil.tz import tzlocal
+from deprecated import deprecated
 from slugify import slugify
 
 from airflow.configuration import conf
@@ -69,9 +70,23 @@ if TYPE_CHECKING:
 
     from airflow.models.connection import Connection  # Avoid circular imports.
 
+_loader = botocore.loaders.Loader()
+"""
+botocore data loader to be used with async sessions
+
+By default, a botocore session creates and caches an instance of JSONDecoder which
+consumes a lot of memory.  This issue was reported here https://github.com/boto/botocore/issues/3078.
+In the context of triggers which use boto sessions, this can result in excessive
+memory usage and as a result reduced capacity on the triggerer.  We can reduce
+memory footprint by sharing the loader instance across the sessions.
+
+:meta private:
+"""
+
 
 class BaseSessionFactory(LoggingMixin):
-    """Base AWS Session Factory class.
+    """
+    Base AWS Session Factory class.
 
     This handles synchronous and async boto session creation. It can handle most
     of the AWS supported authentication methods.
@@ -153,9 +168,13 @@ class BaseSessionFactory(LoggingMixin):
     def get_async_session(self):
         from aiobotocore.session import get_session as async_get_session
 
-        return async_get_session()
+        session = async_get_session()
+        session.register_component("data_loader", _loader)
+        return session
 
-    def create_session(self, deferrable: bool = False) -> boto3.session.Session:
+    def create_session(
+        self, deferrable: bool = False
+    ) -> boto3.session.Session | aiobotocore.session.AioSession:
         """Create boto3 or aiobotocore Session from connection config."""
         if not self.conn:
             self.log.info(
@@ -197,7 +216,7 @@ class BaseSessionFactory(LoggingMixin):
 
     def _create_session_with_assume_role(
         self, session_kwargs: dict[str, Any], deferrable: bool = False
-    ) -> boto3.session.Session:
+    ) -> boto3.session.Session | aiobotocore.session.AioSession:
         if self.conn.assume_role_method == "assume_role_with_web_identity":
             # Deferred credentials have no initial credentials
             credential_fetcher = self._get_web_identity_credential_fetcher()
@@ -238,7 +257,10 @@ class BaseSessionFactory(LoggingMixin):
         session._credentials = credentials
         session.set_config_variable("region", self.basic_session.region_name)
 
-        return boto3.session.Session(botocore_session=session, **session_kwargs)
+        if not deferrable:
+            return boto3.session.Session(botocore_session=session, **session_kwargs)
+
+        return session
 
     def _refresh_credentials(self) -> dict[str, Any]:
         self.log.debug("Refreshing credentials")
@@ -314,7 +336,7 @@ class BaseSessionFactory(LoggingMixin):
             idp_request_retry_kwargs = saml_config["idp_request_retry_kwargs"]
             self.log.info("idp_request_retry_kwargs= %s", idp_request_retry_kwargs)
             from requests.adapters import HTTPAdapter
-            from requests.packages.urllib3.util.retry import Retry
+            from urllib3.util.retry import Retry
 
             retry_strategy = Retry(**idp_request_retry_kwargs)
             adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -429,7 +451,8 @@ class BaseSessionFactory(LoggingMixin):
 
 
 class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
-    """Generic class for interact with AWS.
+    """
+    Generic class for interact with AWS.
 
     This class provide a thin wrapper around the boto3 Python library.
 
@@ -491,7 +514,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
 
     @staticmethod
     def _find_operator_class_name(target_function_name: str) -> str | None:
-        """Given a frame off the stack, return the name of the class that made the call.
+        """
+        Given a frame off the stack, return the name of the class that made the call.
 
         This method may raise a ValueError or an IndexError. The caller is
         responsible with catching and handling those.
@@ -541,7 +565,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
     @staticmethod
     @return_on_error("00000000-0000-0000-0000-000000000000")
     def _generate_dag_key() -> str:
-        """Generate a DAG key.
+        """
+        Generate a DAG key.
 
         The Object Identifier (OID) namespace is used to salt the dag_id value.
         That salted value is used to generate a SHA-1 hash which, by definition,
@@ -628,6 +653,20 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
     def verify(self) -> bool | str | None:
         """Verify or not SSL certificates boto3 client/resource read-only property."""
         return self.conn_config.verify
+
+    @cached_property
+    def account_id(self) -> str:
+        """Return associated AWS Account ID."""
+        return (
+            self.get_session(region_name=self.region_name)
+            .client(
+                service_name="sts",
+                endpoint_url=self.conn_config.get_service_endpoint_url("sts"),
+                config=self.config,
+                verify=self.verify,
+            )
+            .get_caller_identity()["Account"]
+        )
 
     def get_session(self, region_name: str | None = None, deferrable: bool = False) -> boto3.session.Session:
         """Get the underlying boto3.session.Session(region_name=region_name)."""
@@ -763,7 +802,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
         return creds
 
     def expand_role(self, role: str, region_name: str | None = None) -> str:
-        """Get the Amazon Resource Name (ARN) for the role.
+        """
+        Get the Amazon Resource Name (ARN) for the role.
 
         If IAM role is already an IAM role ARN, the value is returned unchanged.
 
@@ -812,8 +852,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
 
         return retry_decorator
 
-    @staticmethod
-    def get_ui_field_behaviour() -> dict[str, Any]:
+    @classmethod
+    def get_ui_field_behaviour(cls) -> dict[str, Any]:
         """Return custom UI field behaviour for AWS Connection."""
         return {
             "hidden_fields": ["host", "schema", "port"],
@@ -841,7 +881,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
         }
 
     def test_connection(self):
-        """Test the AWS connection by call AWS STS (Security Token Service) GetCallerIdentity API.
+        """
+        Test the AWS connection by call AWS STS (Security Token Service) GetCallerIdentity API.
 
         .. seealso::
             https://docs.aws.amazon.com/STS/latest/APIReference/API_GetCallerIdentity.html
@@ -878,7 +919,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
         deferrable: bool = False,
         client=None,
     ) -> Waiter:
-        """Get a waiter by name.
+        """
+        Get a waiter by name.
 
         First checks if there is a custom waiter with the provided waiter_name and
         uses that if it exists, otherwise it will check the service client for a
@@ -949,7 +991,8 @@ class AwsGenericHook(BaseHook, Generic[BaseAwsConnection]):
 
 
 class AwsBaseHook(AwsGenericHook[Union[boto3.client, boto3.resource]]):
-    """Base class for interact with AWS.
+    """
+    Base class for interact with AWS.
 
     This class provide a thin wrapper around the boto3 Python library.
 
@@ -1006,6 +1049,13 @@ except ImportError:
     pass
 
 
+@deprecated(
+    reason=(
+        "`airflow.providers.amazon.aws.hook.base_aws.BaseAsyncSessionFactory` "
+        "has been deprecated and will be removed in future"
+    ),
+    category=AirflowProviderDeprecationWarning,
+)
 class BaseAsyncSessionFactory(BaseSessionFactory):
     """
     Base AWS Session Factory class to handle aiobotocore session creation.
@@ -1015,12 +1065,6 @@ class BaseAsyncSessionFactory(BaseSessionFactory):
     """
 
     def __init__(self, *args, **kwargs):
-        warnings.warn(
-            "airflow.providers.amazon.aws.hook.base_aws.BaseAsyncSessionFactory has been deprecated and "
-            "will be removed in future",
-            AirflowProviderDeprecationWarning,
-            stacklevel=2,
-        )
         super().__init__(*args, **kwargs)
 
     async def get_role_credentials(self) -> dict:
@@ -1099,8 +1143,16 @@ class BaseAsyncSessionFactory(BaseSessionFactory):
         return self._get_session_with_assume_role()
 
 
+@deprecated(
+    reason=(
+        "`airflow.providers.amazon.aws.hook.base_aws.AwsBaseAsyncHook` "
+        "has been deprecated and will be removed in future"
+    ),
+    category=AirflowProviderDeprecationWarning,
+)
 class AwsBaseAsyncHook(AwsBaseHook):
-    """Interacts with AWS using aiobotocore asynchronously.
+    """
+    Interacts with AWS using aiobotocore asynchronously.
 
     :param aws_conn_id: The Airflow connection used for AWS credentials.
         If this is None or empty then the default botocore behaviour is used. If
@@ -1115,12 +1167,6 @@ class AwsBaseAsyncHook(AwsBaseHook):
     """
 
     def __init__(self, *args, **kwargs):
-        warnings.warn(
-            "airflow.providers.amazon.aws.hook.base_aws.AwsBaseAsyncHook has been deprecated and "
-            "will be removed in future",
-            AirflowProviderDeprecationWarning,
-            stacklevel=2,
-        )
         super().__init__(*args, **kwargs)
 
     def get_async_session(self) -> AioSession:

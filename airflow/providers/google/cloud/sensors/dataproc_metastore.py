@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Sequence
 
-from airflow.exceptions import AirflowException, AirflowSkipException
+from airflow.exceptions import AirflowException
 from airflow.providers.google.cloud.hooks.dataproc_metastore import DataprocMetastoreHook
 from airflow.providers.google.cloud.hooks.gcs import parse_json_from_gcs
 from airflow.sensors.base import BaseSensorOperator
@@ -93,29 +93,33 @@ class MetastoreHivePartitionSensor(BaseSensorOperator):
         self.log.info("Received result manifest URI: %s", result_manifest_uri)
 
         self.log.info("Extracting result manifest")
-        manifest: dict = parse_json_from_gcs(gcp_conn_id=self.gcp_conn_id, file_uri=result_manifest_uri)
+        manifest: dict = parse_json_from_gcs(
+            gcp_conn_id=self.gcp_conn_id,
+            file_uri=result_manifest_uri,
+            impersonation_chain=self.impersonation_chain,
+        )
         if not (manifest and isinstance(manifest, dict)):
-            # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
             message = (
                 f"Failed to extract result manifest. "
                 f"Expected not empty dict, but this was received: {manifest}"
             )
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
 
         if manifest.get("status", {}).get("code") != 0:
-            # TODO: remove this if check when min_airflow_version is set to higher than 2.7.1
             message = f"Request failed: {manifest.get('message')}"
-            if self.soft_fail:
-                raise AirflowSkipException(message)
             raise AirflowException(message)
 
         # Extract actual query results
         result_base_uri = result_manifest_uri.rsplit("/", 1)[0]
         results = (f"{result_base_uri}//{filename}" for filename in manifest.get("filenames", []))
         found_partitions = sum(
-            len(parse_json_from_gcs(gcp_conn_id=self.gcp_conn_id, file_uri=uri).get("rows", []))
+            len(
+                parse_json_from_gcs(
+                    gcp_conn_id=self.gcp_conn_id,
+                    file_uri=uri,
+                    impersonation_chain=self.impersonation_chain,
+                ).get("rows", [])
+            )
             for uri in results
         )
 

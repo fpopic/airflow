@@ -28,6 +28,7 @@ from google.cloud.aiplatform import datasets
 from google.cloud.aiplatform.models import Model
 from google.cloud.aiplatform_v1.types.training_pipeline import TrainingPipeline
 
+from airflow.exceptions import AirflowProviderDeprecationWarning
 from airflow.providers.google.cloud.hooks.vertex_ai.auto_ml import AutoMLHook
 from airflow.providers.google.cloud.links.vertex_ai import (
     VertexAIModelLink,
@@ -35,6 +36,7 @@ from airflow.providers.google.cloud.links.vertex_ai import (
     VertexAITrainingPipelinesLink,
 )
 from airflow.providers.google.cloud.operators.cloud_base import GoogleCloudBaseOperator
+from airflow.providers.google.common.deprecated import deprecated
 
 if TYPE_CHECKING:
     from google.api_core.retry import Retry
@@ -91,7 +93,7 @@ class AutoMLTrainingJobBaseOperator(GoogleCloudBaseOperator):
         self.hook: AutoMLHook | None = None
 
     def on_kill(self) -> None:
-        """Callback called when the operator is killed; cancel any running job."""
+        """Act as a callback called when the operator is killed; cancel any running job."""
         if self.hook:
             self.hook.cancel_auto_ml_job()
 
@@ -133,9 +135,16 @@ class CreateAutoMLForecastingTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         quantiles: list[float] | None = None,
         validation_options: str | None = None,
         budget_milli_node_hours: int = 1000,
+        region: str,
+        impersonation_chain: str | Sequence[str] | None = None,
+        parent_model: str | None = None,
+        window_stride_length: int | None = None,
+        window_max_count: int | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            region=region, impersonation_chain=impersonation_chain, parent_model=parent_model, **kwargs
+        )
         self.dataset_id = dataset_id
         self.target_column = target_column
         self.time_column = time_column
@@ -163,13 +172,15 @@ class CreateAutoMLForecastingTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         self.quantiles = quantiles
         self.validation_options = validation_options
         self.budget_milli_node_hours = budget_milli_node_hours
+        self.window_stride_length = window_stride_length
+        self.window_max_count = window_max_count
 
     def execute(self, context: Context):
         self.hook = AutoMLHook(
             gcp_conn_id=self.gcp_conn_id,
             impersonation_chain=self.impersonation_chain,
         )
-        self.parent_model = self.parent_model.rpartition("@")[0] if self.parent_model else None
+        self.parent_model = self.parent_model.split("@")[0] if self.parent_model else None
         model, training_id = self.hook.create_auto_ml_forecasting_training_job(
             project_id=self.project_id,
             region=self.region,
@@ -213,6 +224,8 @@ class CreateAutoMLForecastingTrainingJobOperator(AutoMLTrainingJobBaseOperator):
             model_display_name=self.model_display_name,
             model_labels=self.model_labels,
             sync=self.sync,
+            window_stride_length=self.window_stride_length,
+            window_max_count=self.window_max_count,
         )
 
         if model:
@@ -252,9 +265,14 @@ class CreateAutoMLImageTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         test_filter_split: str | None = None,
         budget_milli_node_hours: int | None = None,
         disable_early_stopping: bool = False,
+        region: str,
+        impersonation_chain: str | Sequence[str] | None = None,
+        parent_model: str | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            region=region, impersonation_chain=impersonation_chain, parent_model=parent_model, **kwargs
+        )
         self.dataset_id = dataset_id
         self.prediction_type = prediction_type
         self.multi_label = multi_label
@@ -272,7 +290,7 @@ class CreateAutoMLImageTrainingJobOperator(AutoMLTrainingJobBaseOperator):
             gcp_conn_id=self.gcp_conn_id,
             impersonation_chain=self.impersonation_chain,
         )
-        self.parent_model = self.parent_model.rpartition("@")[0] if self.parent_model else None
+        self.parent_model = self.parent_model.split("@")[0] if self.parent_model else None
         model, training_id = self.hook.create_auto_ml_image_training_job(
             project_id=self.project_id,
             region=self.region,
@@ -345,9 +363,14 @@ class CreateAutoMLTabularTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         export_evaluated_data_items: bool = False,
         export_evaluated_data_items_bigquery_destination_uri: str | None = None,
         export_evaluated_data_items_override_destination: bool = False,
+        region: str,
+        impersonation_chain: str | Sequence[str] | None = None,
+        parent_model: str | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            region=region, impersonation_chain=impersonation_chain, parent_model=parent_model, **kwargs
+        )
         self.dataset_id = dataset_id
         self.target_column = target_column
         self.optimization_prediction_type = optimization_prediction_type
@@ -376,7 +399,7 @@ class CreateAutoMLTabularTrainingJobOperator(AutoMLTrainingJobBaseOperator):
             impersonation_chain=self.impersonation_chain,
         )
         credentials, _ = self.hook.get_credentials_and_project_id()
-        self.parent_model = self.parent_model.rpartition("@")[0] if self.parent_model else None
+        self.parent_model = self.parent_model.split("@")[0] if self.parent_model else None
         model, training_id = self.hook.create_auto_ml_tabular_training_job(
             project_id=self.project_id,
             region=self.region,
@@ -432,8 +455,22 @@ class CreateAutoMLTabularTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         return result
 
 
+@deprecated(
+    planned_removal_date="September 15, 2024",
+    use_instead="SupervisedFineTuningTrainOperator",
+    instructions=(
+        "Please consider using Fine Tuning over the Gemini model. "
+        "More info: https://cloud.google.com/vertex-ai/docs/start/automl-gemini-comparison"
+    ),
+    category=AirflowProviderDeprecationWarning,
+)
 class CreateAutoMLTextTrainingJobOperator(AutoMLTrainingJobBaseOperator):
-    """Create Auto ML Text Training job."""
+    """
+    Create Auto ML Text Training job.
+
+    WARNING: Text creation API is deprecated since September 15, 2024
+        (https://cloud.google.com/vertex-ai/docs/tutorials/text-classification-automl/overview).
+    """
 
     template_fields = [
         "parent_model",
@@ -471,7 +508,7 @@ class CreateAutoMLTextTrainingJobOperator(AutoMLTrainingJobBaseOperator):
             gcp_conn_id=self.gcp_conn_id,
             impersonation_chain=self.impersonation_chain,
         )
-        self.parent_model = self.parent_model.rpartition("@")[0] if self.parent_model else None
+        self.parent_model = self.parent_model.split("@")[0] if self.parent_model else None
         model, training_id = self.hook.create_auto_ml_text_training_job(
             project_id=self.project_id,
             region=self.region,
@@ -529,9 +566,14 @@ class CreateAutoMLVideoTrainingJobOperator(AutoMLTrainingJobBaseOperator):
         model_type: str = "CLOUD",
         training_filter_split: str | None = None,
         test_filter_split: str | None = None,
+        region: str,
+        impersonation_chain: str | Sequence[str] | None = None,
+        parent_model: str | None = None,
         **kwargs,
     ) -> None:
-        super().__init__(**kwargs)
+        super().__init__(
+            region=region, impersonation_chain=impersonation_chain, parent_model=parent_model, **kwargs
+        )
         self.dataset_id = dataset_id
         self.prediction_type = prediction_type
         self.model_type = model_type
@@ -543,7 +585,7 @@ class CreateAutoMLVideoTrainingJobOperator(AutoMLTrainingJobBaseOperator):
             gcp_conn_id=self.gcp_conn_id,
             impersonation_chain=self.impersonation_chain,
         )
-        self.parent_model = self.parent_model.rpartition("@")[0] if self.parent_model else None
+        self.parent_model = self.parent_model.split("@")[0] if self.parent_model else None
         model, training_id = self.hook.create_auto_ml_video_training_job(
             project_id=self.project_id,
             region=self.region,
@@ -587,7 +629,7 @@ class DeleteAutoMLTrainingJobOperator(GoogleCloudBaseOperator):
     AutoMLTabularTrainingJob, AutoMLTextTrainingJob, or AutoMLVideoTrainingJob.
     """
 
-    template_fields = ("training_pipeline", "region", "project_id", "impersonation_chain")
+    template_fields = ("training_pipeline_id", "region", "project_id", "impersonation_chain")
 
     def __init__(
         self,
@@ -603,7 +645,7 @@ class DeleteAutoMLTrainingJobOperator(GoogleCloudBaseOperator):
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
-        self.training_pipeline = training_pipeline_id
+        self.training_pipeline_id = training_pipeline_id
         self.region = region
         self.project_id = project_id
         self.retry = retry
@@ -612,15 +654,25 @@ class DeleteAutoMLTrainingJobOperator(GoogleCloudBaseOperator):
         self.gcp_conn_id = gcp_conn_id
         self.impersonation_chain = impersonation_chain
 
+    @property
+    @deprecated(
+        planned_removal_date="March 01, 2025",
+        use_instead="training_pipeline_id",
+        category=AirflowProviderDeprecationWarning,
+    )
+    def training_pipeline(self):
+        """Alias for ``training_pipeline_id``, used for compatibility (deprecated)."""
+        return self.training_pipeline_id
+
     def execute(self, context: Context):
         hook = AutoMLHook(
             gcp_conn_id=self.gcp_conn_id,
             impersonation_chain=self.impersonation_chain,
         )
         try:
-            self.log.info("Deleting Auto ML training pipeline: %s", self.training_pipeline)
+            self.log.info("Deleting Auto ML training pipeline: %s", self.training_pipeline_id)
             training_pipeline_operation = hook.delete_training_pipeline(
-                training_pipeline=self.training_pipeline,
+                training_pipeline=self.training_pipeline_id,
                 region=self.region,
                 project_id=self.project_id,
                 retry=self.retry,
@@ -630,7 +682,7 @@ class DeleteAutoMLTrainingJobOperator(GoogleCloudBaseOperator):
             hook.wait_for_operation(timeout=self.timeout, operation=training_pipeline_operation)
             self.log.info("Training pipeline was deleted.")
         except NotFound:
-            self.log.info("The Training Pipeline ID %s does not exist.", self.training_pipeline)
+            self.log.info("The Training Pipeline ID %s does not exist.", self.training_pipeline_id)
 
 
 class ListAutoMLTrainingJobOperator(GoogleCloudBaseOperator):

@@ -20,6 +20,7 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Sequence
 
+from opensearchpy import RequestsHttpConnection
 from opensearchpy.exceptions import OpenSearchException
 
 from airflow.exceptions import AirflowException
@@ -27,12 +28,14 @@ from airflow.models import BaseOperator
 from airflow.providers.opensearch.hooks.opensearch import OpenSearchHook
 
 if TYPE_CHECKING:
+    from opensearchpy import Connection as OpenSearchConnectionClass
+
     from airflow.utils.context import Context
 
 
 class OpenSearchQueryOperator(BaseOperator):
     """
-    Runs a query search against a given index on an OpenSearch cluster and returns results.
+    Run a query search against a given index on an OpenSearch cluster and returns results.
 
     .. seealso::
         For more information on how to use this operator, take a look at the guide:
@@ -42,6 +45,7 @@ class OpenSearchQueryOperator(BaseOperator):
     :param search_object: A Search object from opensearch-dsl.
     :param index_name: The name of the index to search for documents.
     :param opensearch_conn_id: opensearch connection to use
+    :param opensearch_conn_class: opensearch connection class to use
     :param log_query: Whether to log the query used. Defaults to True and logs query used.
     """
 
@@ -54,6 +58,7 @@ class OpenSearchQueryOperator(BaseOperator):
         search_object: Any | None = None,
         index_name: str | None = None,
         opensearch_conn_id: str = "opensearch_default",
+        opensearch_conn_class: type[OpenSearchConnectionClass] | None = RequestsHttpConnection,
         log_query: bool = True,
         **kwargs,
     ) -> None:
@@ -61,16 +66,21 @@ class OpenSearchQueryOperator(BaseOperator):
         self.query = query
         self.index_name = index_name
         self.opensearch_conn_id = opensearch_conn_id
+        self.opensearch_conn_class = opensearch_conn_class
         self.log_query = log_query
         self.search_object = search_object
 
     @cached_property
     def hook(self) -> OpenSearchHook:
-        """Gets an instance of an OpenSearchHook."""
-        return OpenSearchHook(open_search_conn_id=self.opensearch_conn_id, log_query=self.log_query)
+        """Get an instance of an OpenSearchHook."""
+        return OpenSearchHook(
+            open_search_conn_id=self.opensearch_conn_id,
+            open_search_conn_class=self.opensearch_conn_class,
+            log_query=self.log_query,
+        )
 
     def execute(self, context: Context) -> Any:
-        """Executes a search against a given index or a Search object on an OpenSearch Cluster."""
+        """Execute a search against a given index or a Search object on an OpenSearch Cluster."""
         result = None
 
         if self.query is not None:
@@ -123,11 +133,11 @@ class OpenSearchCreateIndexOperator(BaseOperator):
 
     @cached_property
     def hook(self) -> OpenSearchHook:
-        """Gets an instance of an OpenSearchHook."""
+        """Get an instance of an OpenSearchHook."""
         return OpenSearchHook(open_search_conn_id=self.opensearch_conn_id, log_query=False)
 
     def execute(self, context: Context) -> Any:
-        """Creates an index on an OpenSearch cluster."""
+        """Create an index on an OpenSearch cluster."""
         try:
             self.hook.client.indices.create(index=self.index_name, body=self.index_body)
         except OpenSearchException as e:
@@ -168,11 +178,11 @@ class OpenSearchAddDocumentOperator(BaseOperator):
 
     @cached_property
     def hook(self) -> OpenSearchHook:
-        """Gets an instance of an OpenSearchHook."""
+        """Get an instance of an OpenSearchHook."""
         return OpenSearchHook(open_search_conn_id=self.opensearch_conn_id, log_query=False)
 
     def execute(self, context: Context) -> Any:
-        """Saves a document to a given index on an OpenSearch cluster."""
+        """Save a document to a given index on an OpenSearch cluster."""
         if self.doc_class is not None:
             try:
                 doc = self.doc_class.init(using=self.hook.client)

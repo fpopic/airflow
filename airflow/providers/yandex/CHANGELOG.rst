@@ -27,6 +27,166 @@
 Changelog
 ---------
 
+3.12.0
+......
+
+.. note::
+  This release of provider is only available for Airflow 2.8+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Bug Fixes
+~~~~~~~~~
+
+* ``providers/yandex: fix typing (#40997)``
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.8.0 (#41396)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Prepare docs for Aug 1st wave of providers (#41230)``
+   * ``Prepare docs 1st wave July 2024 (#40644)``
+   * ``Enable enforcing pydocstyle rule D213 in ruff. (#40448)``
+
+3.11.2
+......
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Exclude yandex versions 0.289.0, 0.290.0 (#39974)``
+
+Misc
+~~~~
+
+* ``Fix typos in Providers docs and Yandex hook (#40277)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Limit yandex provider to avoid mypy errors (#39990)``
+   * ``Workaround new yandexcloud breaking dataproc integration (#39964)``
+
+3.11.1
+......
+
+Misc
+~~~~
+
+* `` AIP-21: yandexcloud: rename files, emit deprecation warning (#39618)``
+* ``yandex provider: bump version for yq http client package (#39548)``
+* ``Faster 'airflow_version' imports (#39552)``
+* ``add doc about Yandex Query operator (#39445)``
+* ``Simplify 'airflow_version' imports (#39497)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Reapply templates for all providers (#39554)``
+
+3.11.0
+......
+
+.. note::
+  This release of provider is only available for Airflow 2.7+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.7.0 (#39240)``
+
+3.10.0
+......
+
+Features
+~~~~~~~~
+
+* ``Add Yandex Query support from Yandex.Cloud (#37458)``
+
+Misc
+~~~~
+
+* ``support iam token from metadata, simplify code (#38411)``
+* ``Avoid use of 'assert' outside of the tests (#37718)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Prepare docs 1st wave (RC1) April 2024 (#38863)``
+   * ``docs: yandex provider grammatical improvements (#38589)``
+   * ``Bump ruff to 0.3.3 (#38240)``
+   * ``Prepare docs 1st wave (RC1) March 2024 (#37876)``
+   * ``Add comment about versions updated by release manager (#37488)``
+
+3.9.0
+.....
+
+Features
+~~~~~~~~
+
+* ``Add secrets-backends section into the Yandex provider yaml definition (#37065)``
+
+Bug Fixes
+~~~~~~~~~
+
+* ``fix: using endpoint from connection if not specified (#37076)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``D401 Support in Providers (simple) (#37258)``
+   * ``docs: update description in airflow provider.yaml (#37096)``
+
+3.8.0
+.....
+
+Features
+~~~~~~~~
+
+* ``feat: add Yandex Cloud Lockbox secrets backend (#36449)``
+
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Fix stacklevel in warnings.warn into the providers (#36831)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Prepare docs 1st wave of Providers January 2024 (#36640)``
+   * ``Speed up autocompletion of Breeze by simplifying provider state (#36499)``
+   * ``Provide the logger_name param in providers hooks in order to override the logger name (#36675)``
+   * ``Revert "Provide the logger_name param in providers hooks in order to override the logger name (#36675)" (#37015)``
+   * ``Prepare docs 2nd wave of Providers January 2024 (#36945)``
+
+3.7.1
+.....
+
+Bug Fixes
+~~~~~~~~~
+
+* ``Follow BaseHook connection fields method signature in child classes (#36086)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+
+3.7.0
+.....
+
+.. note::
+  This release of provider is only available for Airflow 2.6+ as explained in the
+  `Apache Airflow providers support policy <https://github.com/apache/airflow/blob/main/PROVIDERS.rst#minimum-supported-version-of-airflow-for-community-managed-providers>`_.
+
+Misc
+~~~~
+
+* ``Bump minimum Airflow version in providers to Airflow 2.6.0 (#36017)``
+
+.. Below changes are excluded from the changelog. Move them to
+   appropriate section above if needed. Do not delete the lines(!):
+   * ``Fix and reapply templates for provider documentation (#35686)``
+   * ``Prepare docs 2nd wave of Providers November 2023 (#35836)``
+   * ``Use reproducible builds for provider packages (#35693)``
+
 3.6.0
 .....
 

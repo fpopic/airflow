@@ -29,6 +29,7 @@ from paramiko.ssh_exception import SSHException
 from airflow.exceptions import AirflowException
 from airflow.providers.google.cloud.hooks.compute import ComputeEngineHook
 from airflow.providers.google.cloud.hooks.os_login import OSLoginHook
+from airflow.providers.google.common.hooks.base_google import PROVIDE_PROJECT_ID
 from airflow.providers.ssh.hooks.ssh import SSHHook
 from airflow.utils.types import NOTSET, ArgNotSet
 
@@ -96,8 +97,8 @@ class ComputeEngineSSHHook(SSHHook):
     conn_type = "gcpssh"
     hook_name = "Google Cloud SSH"
 
-    @staticmethod
-    def get_ui_field_behaviour() -> dict[str, Any]:
+    @classmethod
+    def get_ui_field_behaviour(cls) -> dict[str, Any]:
         return {
             "hidden_fields": ["host", "schema", "login", "password", "port", "extra"],
             "relabeling": {},
@@ -109,7 +110,7 @@ class ComputeEngineSSHHook(SSHHook):
         instance_name: str | None = None,
         zone: str | None = None,
         user: str | None = "root",
-        project_id: str | None = None,
+        project_id: str = PROVIDE_PROJECT_ID,
         hostname: str | None = None,
         use_internal_ip: bool = False,
         use_iap_tunnel: bool = False,
@@ -281,7 +282,7 @@ class ComputeEngineSSHHook(SSHHook):
                 if retry == self.max_retries:
                     raise AirflowException("Maximum retries exceeded. Aborting operation.")
                 delay = random.randint(0, max_delay)
-                self.log.info(f"Failed establish SSH connection, waiting {delay} seconds to retry...")
+                self.log.info("Failed establish SSH connection, waiting %s seconds to retry...", delay)
                 time.sleep(delay)
         if not sshclient:
             raise AirflowException("Unable to establish SSH connection.")
@@ -295,7 +296,7 @@ class ComputeEngineSSHHook(SSHHook):
                 client = _GCloudAuthorizedSSHClient(self._compute_hook)
                 # Default is RejectPolicy
                 # No known host checking since we are not storing privatekey
-                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # nosec B507
                 client.connect(
                     hostname=hostname,
                     username=user,
@@ -327,14 +328,14 @@ class ComputeEngineSSHHook(SSHHook):
                 break
         else:
             new_dict = {"key": "ssh-keys", "value": keys}
-            metadata["items"] = [new_dict]
+            metadata["items"] = [*items, new_dict]
 
         self._compute_hook.set_instance_metadata(
             zone=self.zone, resource_id=self.instance_name, metadata=metadata, project_id=self.project_id
         )
 
     def _authorize_os_login(self, pubkey):
-        username = self._oslogin_hook._get_credentials_email()
+        username = self._oslogin_hook._get_credentials_email
         self.log.info("Importing SSH public key using OSLogin: user=%s", username)
         expiration = int((time.time() + self.expire_time) * 1000000)
         ssh_public_key = {"key": pubkey, "expiration_time_usec": expiration}

@@ -21,7 +21,7 @@ import datetime
 from unittest import mock
 
 import boto3
-from moto import mock_s3
+from moto import mock_aws
 
 from airflow.models.dag import DAG
 from airflow.providers.amazon.aws.transfers.http_to_s3 import HttpToS3Operator
@@ -33,7 +33,7 @@ EXAMPLE_URL = "http://www.example.com"
 class TestHttpToS3Operator:
     def setup_method(self):
         args = {"owner": "airflow", "start_date": datetime.datetime(2017, 1, 1)}
-        self.dag = DAG("test_dag_id", default_args=args)
+        self.dag = DAG("test_dag_id", schedule=None, default_args=args)
         self.http_conn_id = "HTTP_EXAMPLE"
         self.response = b"Example.com fake response"
         self.endpoint = "/"
@@ -54,7 +54,7 @@ class TestHttpToS3Operator:
         assert operator.s3_bucket == self.s3_bucket
         assert operator.http_conn_id == self.http_conn_id
 
-    @mock_s3
+    @mock_aws
     def test_execute(self, requests_mock):
         requests_mock.register_uri("GET", EXAMPLE_URL, content=self.response)
         conn = boto3.client("s3")

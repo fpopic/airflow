@@ -23,7 +23,7 @@ from uuid import UUID
 import pytest
 from botocore.exceptions import WaiterError
 
-from airflow.exceptions import AirflowException, TaskDeferred
+from airflow.exceptions import AirflowException, AirflowProviderDeprecationWarning, TaskDeferred
 from airflow.providers.amazon.aws.hooks.emr import EmrServerlessHook
 from airflow.providers.amazon.aws.operators.emr import (
     EmrServerlessCreateApplicationOperator,
@@ -32,6 +32,7 @@ from airflow.providers.amazon.aws.operators.emr import (
     EmrServerlessStopApplicationOperator,
 )
 from airflow.utils.types import NOTSET
+from tests.providers.amazon.aws.utils.test_template_fields import validate_template_fields
 
 if TYPE_CHECKING:
     from unittest.mock import MagicMock
@@ -45,8 +46,24 @@ config = {"name": "test_application_emr_serverless"}
 
 execution_role_arn = "test_emr_serverless_role_arn"
 job_driver = {"test_key": "test_value"}
+spark_job_driver = {"sparkSubmit": {"entryPoint": "test.py"}}
 configuration_overrides = {"monitoringConfiguration": {"test_key": "test_value"}}
 job_run_id = "test_job_run_id"
+s3_logs_location = "s3://test_bucket/test_key/"
+cloudwatch_logs_group_name = "/aws/emrs"
+cloudwatch_logs_prefix = "myapp"
+s3_configuration_overrides = {
+    "monitoringConfiguration": {"s3MonitoringConfiguration": {"logUri": s3_logs_location}}
+}
+cloudwatch_configuration_overrides = {
+    "monitoringConfiguration": {
+        "cloudWatchLoggingConfiguration": {
+            "enabled": True,
+            "logGroupName": cloudwatch_logs_group_name,
+            "logStreamNamePrefix": cloudwatch_logs_prefix,
+        }
+    }
+}
 
 application_id_delete_operator = "test_emr_serverless_delete_application_operator"
 
@@ -310,28 +327,51 @@ class TestEmrServerlessCreateApplicationOperator:
         )
 
     @pytest.mark.parametrize(
-        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected",
+        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected, warning",
         [
-            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25]),
-            (30, 10, NOTSET, NOTSET, [30, 10]),
-            (NOTSET, NOTSET, 30 * 15, 15, [15, 30]),
-            (10, 20, 30, 40, [10, 20]),
+            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25], False),
+            (30, 10, NOTSET, NOTSET, [30, 10], False),
+            (NOTSET, NOTSET, 30 * 15, 15, [15, 30], True),
+            (10, 20, 30, 40, [10, 20], True),
         ],
     )
     def test_create_application_waiter_params(
-        self, waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected
+        self,
+        waiter_delay,
+        waiter_max_attempts,
+        waiter_countdown,
+        waiter_check_interval_seconds,
+        expected,
+        warning,
     ):
-        operator = EmrServerlessCreateApplicationOperator(
-            task_id=task_id,
-            release_label=release_label,
-            job_type=job_type,
-            client_request_token=client_request_token,
-            config=config,
-            waiter_delay=waiter_delay,
-            waiter_max_attempts=waiter_max_attempts,
-            waiter_countdown=waiter_countdown,
-            waiter_check_interval_seconds=waiter_check_interval_seconds,
-        )
+        if warning:
+            with pytest.warns(
+                AirflowProviderDeprecationWarning,
+                match="The parameter waiter_.* has been deprecated to standardize naming conventions.  Please use waiter_.* instead. .*In the future this will default to None and defer to the waiter's default value.",
+            ):
+                operator = EmrServerlessCreateApplicationOperator(
+                    task_id=task_id,
+                    release_label=release_label,
+                    job_type=job_type,
+                    client_request_token=client_request_token,
+                    config=config,
+                    waiter_delay=waiter_delay,
+                    waiter_max_attempts=waiter_max_attempts,
+                    waiter_countdown=waiter_countdown,
+                    waiter_check_interval_seconds=waiter_check_interval_seconds,
+                )
+        else:
+            operator = EmrServerlessCreateApplicationOperator(
+                task_id=task_id,
+                release_label=release_label,
+                job_type=job_type,
+                client_request_token=client_request_token,
+                config=config,
+                waiter_delay=waiter_delay,
+                waiter_max_attempts=waiter_max_attempts,
+                waiter_countdown=waiter_countdown,
+                waiter_check_interval_seconds=waiter_check_interval_seconds,
+            )
         assert operator.wait_for_completion is True
         assert operator.waiter_delay == expected[0]
         assert operator.waiter_max_attempts == expected[1]
@@ -354,8 +394,30 @@ class TestEmrServerlessCreateApplicationOperator:
         with pytest.raises(TaskDeferred):
             operator.execute(None)
 
+    def test_template_fields(self):
+        operator = EmrServerlessCreateApplicationOperator(
+            task_id=task_id,
+            release_label=release_label,
+            job_type=job_type,
+            client_request_token=client_request_token,
+            config=config,
+            waiter_max_attempts=3,
+            waiter_delay=0,
+        )
+
+        template_fields = list(operator.template_fields) + list(operator.template_fields_renderers.keys())
+
+        class_fields = operator.__dict__
+
+        missing_fields = [field for field in template_fields if field not in class_fields]
+
+        assert not missing_fields, f"Templated fields are not available {missing_fields}"
+
 
 class TestEmrServerlessStartJobOperator:
+    def setup_method(self):
+        self.mock_context = mock.MagicMock()
+
     @mock.patch.object(EmrServerlessHook, "get_waiter")
     @mock.patch.object(EmrServerlessHook, "conn")
     def test_job_run_app_started(self, mock_conn, mock_get_waiter):
@@ -375,7 +437,7 @@ class TestEmrServerlessStartJobOperator:
             job_driver=job_driver,
             configuration_overrides=configuration_overrides,
         )
-        id = operator.execute(None)
+        id = operator.execute(self.mock_context)
         default_name = operator.name
 
         assert operator.wait_for_completion is True
@@ -414,8 +476,8 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
         )
         with pytest.raises(AirflowException) as ex_message:
-            id = operator.execute(None)
-            assert id == job_run_id
+            operator.execute(self.mock_context)
+
         assert "Serverless Job failed:" in str(ex_message.value)
         default_name = operator.name
 
@@ -447,7 +509,7 @@ class TestEmrServerlessStartJobOperator:
             job_driver=job_driver,
             configuration_overrides=configuration_overrides,
         )
-        id = operator.execute(None)
+        id = operator.execute(self.mock_context)
         default_name = operator.name
 
         assert operator.wait_for_completion is True
@@ -492,7 +554,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
         )
         with pytest.raises(AirflowException) as ex_message:
-            operator.execute(None)
+            operator.execute(self.mock_context)
         assert "Serverless Application failed to start:" in str(ex_message.value)
         assert operator.wait_for_completion is True
         assert mock_get_waiter().wait.call_count == 2
@@ -516,7 +578,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
             wait_for_completion=False,
         )
-        id = operator.execute(None)
+        id = operator.execute(self.mock_context)
         default_name = operator.name
 
         mock_conn.get_application.assert_called_once_with(applicationId=application_id)
@@ -550,7 +612,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
             wait_for_completion=False,
         )
-        id = operator.execute(None)
+        id = operator.execute(self.mock_context)
         assert id == job_run_id
         default_name = operator.name
 
@@ -583,7 +645,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
         )
         with pytest.raises(AirflowException) as ex_message:
-            operator.execute(None)
+            operator.execute(self.mock_context)
         assert "EMR serverless job failed to start:" in str(ex_message.value)
         default_name = operator.name
 
@@ -621,7 +683,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
         )
         with pytest.raises(AirflowException) as ex_message:
-            operator.execute(None)
+            operator.execute(self.mock_context)
         assert "Serverless Job failed:" in str(ex_message.value)
         default_name = operator.name
 
@@ -654,7 +716,7 @@ class TestEmrServerlessStartJobOperator:
             job_driver=job_driver,
             configuration_overrides=configuration_overrides,
         )
-        operator.execute(None)
+        operator.execute(self.mock_context)
         default_name = operator.name
         generated_name_uuid = default_name.split("_")[-1]
         assert default_name.startswith("emr_serverless_job_airflow")
@@ -688,7 +750,7 @@ class TestEmrServerlessStartJobOperator:
             configuration_overrides=configuration_overrides,
             name=custom_name,
         )
-        operator.execute(None)
+        operator.execute(self.mock_context)
 
         mock_conn.start_job_run.assert_called_once_with(
             clientToken=client_request_token,
@@ -718,7 +780,7 @@ class TestEmrServerlessStartJobOperator:
             wait_for_completion=False,
         )
 
-        id = operator.execute(None)
+        id = operator.execute(self.mock_context)
         operator.on_kill()
         mock_conn.cancel_job_run.assert_called_once_with(
             applicationId=application_id,
@@ -726,28 +788,51 @@ class TestEmrServerlessStartJobOperator:
         )
 
     @pytest.mark.parametrize(
-        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected",
+        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected, warning",
         [
-            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25]),
-            (30, 10, NOTSET, NOTSET, [30, 10]),
-            (NOTSET, NOTSET, 30 * 15, 15, [15, 30]),
-            (10, 20, 30, 40, [10, 20]),
+            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25], False),
+            (30, 10, NOTSET, NOTSET, [30, 10], False),
+            (NOTSET, NOTSET, 30 * 15, 15, [15, 30], True),
+            (10, 20, 30, 40, [10, 20], True),
         ],
     )
     def test_start_job_waiter_params(
-        self, waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected
+        self,
+        waiter_delay,
+        waiter_max_attempts,
+        waiter_countdown,
+        waiter_check_interval_seconds,
+        expected,
+        warning,
     ):
-        operator = EmrServerlessStartJobOperator(
-            task_id=task_id,
-            application_id=application_id,
-            execution_role_arn=execution_role_arn,
-            job_driver=job_driver,
-            configuration_overrides=configuration_overrides,
-            waiter_delay=waiter_delay,
-            waiter_max_attempts=waiter_max_attempts,
-            waiter_countdown=waiter_countdown,
-            waiter_check_interval_seconds=waiter_check_interval_seconds,
-        )
+        if warning:
+            with pytest.warns(
+                AirflowProviderDeprecationWarning,
+                match="The parameter waiter_.* has been deprecated to standardize naming conventions.  Please use waiter_.* instead. .*In the future this will default to None and defer to the waiter's default value.",
+            ):
+                operator = EmrServerlessStartJobOperator(
+                    task_id=task_id,
+                    application_id=application_id,
+                    execution_role_arn=execution_role_arn,
+                    job_driver=job_driver,
+                    configuration_overrides=configuration_overrides,
+                    waiter_delay=waiter_delay,
+                    waiter_max_attempts=waiter_max_attempts,
+                    waiter_countdown=waiter_countdown,
+                    waiter_check_interval_seconds=waiter_check_interval_seconds,
+                )
+        else:
+            operator = EmrServerlessStartJobOperator(
+                task_id=task_id,
+                application_id=application_id,
+                execution_role_arn=execution_role_arn,
+                job_driver=job_driver,
+                configuration_overrides=configuration_overrides,
+                waiter_delay=waiter_delay,
+                waiter_max_attempts=waiter_max_attempts,
+                waiter_countdown=waiter_countdown,
+                waiter_check_interval_seconds=waiter_check_interval_seconds,
+            )
         assert operator.wait_for_completion is True
         assert operator.waiter_delay == expected[0]
         assert operator.waiter_max_attempts == expected[1]
@@ -769,12 +854,33 @@ class TestEmrServerlessStartJobOperator:
         )
 
         with pytest.raises(TaskDeferred):
-            operator.execute(None)
+            operator.execute(self.mock_context)
+
+    @mock.patch.object(EmrServerlessHook, "conn")
+    def test_start_job_deferrable_without_wait_for_completion(self, mock_conn):
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=configuration_overrides,
+            deferrable=True,
+            wait_for_completion=False,
+        )
+
+        result = operator.execute(self.mock_context)
+
+        assert result == job_run_id
 
     @mock.patch.object(EmrServerlessHook, "get_waiter")
     @mock.patch.object(EmrServerlessHook, "conn")
     def test_start_job_deferrable_app_not_started(self, mock_conn, mock_get_waiter):
-        mock_get_waiter.return_value = True
+        mock_get_waiter.wait.return_value = True
         mock_conn.get_application.return_value = {"application": {"state": "CREATING"}}
         mock_conn.start_application.return_value = {
             "ResponseMetadata": {"HTTPStatusCode": 200},
@@ -789,7 +895,311 @@ class TestEmrServerlessStartJobOperator:
         )
 
         with pytest.raises(TaskDeferred):
-            operator.execute(None)
+            operator.execute(self.mock_context)
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_start_job_default(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=configuration_overrides,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_s3_logs_link.assert_not_called()
+        mock_logs_link.assert_not_called()
+        mock_dashboard_link.assert_not_called()
+        mock_cloudwatch_link.assert_not_called()
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_s3_enabled(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=s3_configuration_overrides,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_logs_link.assert_not_called()
+        mock_dashboard_link.assert_not_called()
+        mock_cloudwatch_link.assert_not_called()
+        mock_s3_logs_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            log_uri=s3_logs_location,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_cloudwatch_enabled(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=cloudwatch_configuration_overrides,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_logs_link.assert_not_called()
+        mock_dashboard_link.assert_not_called()
+        mock_s3_logs_link.assert_not_called()
+        mock_cloudwatch_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            awslogs_group=cloudwatch_logs_group_name,
+            stream_prefix=f"{cloudwatch_logs_prefix}/applications/{application_id}/jobs/{job_run_id}",
+        )
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_applicationui_enabled(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=cloudwatch_configuration_overrides,
+            enable_application_ui_links=True,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_logs_link.assert_not_called()
+        mock_s3_logs_link.assert_not_called()
+        mock_dashboard_link.assert_called_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            conn_id=mock.ANY,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+        mock_cloudwatch_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            awslogs_group=cloudwatch_logs_group_name,
+            stream_prefix=f"{cloudwatch_logs_prefix}/applications/{application_id}/jobs/{job_run_id}",
+        )
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_applicationui_with_spark_enabled(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=spark_job_driver,
+            configuration_overrides=s3_configuration_overrides,
+            enable_application_ui_links=True,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_logs_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            conn_id=mock.ANY,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+        mock_dashboard_link.assert_called_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            conn_id=mock.ANY,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+        mock_cloudwatch_link.assert_not_called()
+        mock_s3_logs_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            log_uri=s3_logs_location,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+
+    @mock.patch.object(EmrServerlessHook, "get_waiter")
+    @mock.patch.object(EmrServerlessHook, "conn")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessCloudWatchLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessDashboardLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessLogsLink.persist")
+    @mock.patch("airflow.providers.amazon.aws.links.emr.EmrServerlessS3LogsLink.persist")
+    def test_links_spark_without_applicationui_enabled(
+        self,
+        mock_s3_logs_link,
+        mock_logs_link,
+        mock_dashboard_link,
+        mock_cloudwatch_link,
+        mock_conn,
+        mock_get_waiter,
+    ):
+        mock_get_waiter.wait.return_value = True
+        mock_conn.get_application.return_value = {"application": {"state": "STARTED"}}
+        mock_conn.start_job_run.return_value = {
+            "jobRunId": job_run_id,
+            "ResponseMetadata": {"HTTPStatusCode": 200},
+        }
+
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=spark_job_driver,
+            configuration_overrides=s3_configuration_overrides,
+            enable_application_ui_links=False,
+        )
+        operator.execute(self.mock_context)
+        mock_conn.start_job_run.assert_called_once()
+
+        mock_logs_link.assert_not_called()
+        mock_dashboard_link.assert_not_called()
+        mock_cloudwatch_link.assert_not_called()
+        mock_s3_logs_link.assert_called_once_with(
+            context=mock.ANY,
+            operator=mock.ANY,
+            region_name=mock.ANY,
+            aws_partition=mock.ANY,
+            log_uri=s3_logs_location,
+            application_id=application_id,
+            job_run_id=job_run_id,
+        )
+
+    def test_template_fields(self):
+        operator = EmrServerlessStartJobOperator(
+            task_id=task_id,
+            client_request_token=client_request_token,
+            application_id=application_id,
+            execution_role_arn=execution_role_arn,
+            job_driver=job_driver,
+            configuration_overrides=configuration_overrides,
+        )
+
+        template_fields = list(operator.template_fields) + list(operator.template_fields_renderers.keys())
+
+        class_fields = operator.__dict__
+
+        missing_fields = [field for field in template_fields if field not in class_fields]
+
+        assert not missing_fields, f"Templated fields are not available {missing_fields}"
 
 
 class TestEmrServerlessDeleteOperator:
@@ -850,25 +1260,45 @@ class TestEmrServerlessDeleteOperator:
         mock_conn.delete_application.assert_called_once_with(applicationId=application_id_delete_operator)
 
     @pytest.mark.parametrize(
-        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected",
+        "waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected, warning",
         [
-            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25]),
-            (30, 10, NOTSET, NOTSET, [30, 10]),
-            (NOTSET, NOTSET, 30 * 15, 15, [15, 30]),
-            (10, 20, 30, 40, [10, 20]),
+            (NOTSET, NOTSET, NOTSET, NOTSET, [60, 25], False),
+            (30, 10, NOTSET, NOTSET, [30, 10], False),
+            (NOTSET, NOTSET, 30 * 15, 15, [15, 30], True),
+            (10, 20, 30, 40, [10, 20], True),
         ],
     )
     def test_delete_application_waiter_params(
-        self, waiter_delay, waiter_max_attempts, waiter_countdown, waiter_check_interval_seconds, expected
+        self,
+        waiter_delay,
+        waiter_max_attempts,
+        waiter_countdown,
+        waiter_check_interval_seconds,
+        expected,
+        warning,
     ):
-        operator = EmrServerlessDeleteApplicationOperator(
-            task_id=task_id,
-            application_id=application_id,
-            waiter_delay=waiter_delay,
-            waiter_max_attempts=waiter_max_attempts,
-            waiter_countdown=waiter_countdown,
-            waiter_check_interval_seconds=waiter_check_interval_seconds,
-        )
+        if warning:
+            with pytest.warns(
+                AirflowProviderDeprecationWarning,
+                match="The parameter waiter_.* has been deprecated to standardize naming conventions.  Please use waiter_.* instead. .*In the future this will default to None and defer to the waiter's default value.",
+            ):
+                operator = EmrServerlessDeleteApplicationOperator(
+                    task_id=task_id,
+                    application_id=application_id,
+                    waiter_delay=waiter_delay,
+                    waiter_max_attempts=waiter_max_attempts,
+                    waiter_countdown=waiter_countdown,
+                    waiter_check_interval_seconds=waiter_check_interval_seconds,
+                )
+        else:
+            operator = EmrServerlessDeleteApplicationOperator(
+                task_id=task_id,
+                application_id=application_id,
+                waiter_delay=waiter_delay,
+                waiter_max_attempts=waiter_max_attempts,
+                waiter_countdown=waiter_countdown,
+                waiter_check_interval_seconds=waiter_check_interval_seconds,
+            )
         assert operator.wait_for_completion is True
         assert operator.waiter_delay == expected[0]
         assert operator.waiter_max_attempts == expected[1]
@@ -884,6 +1314,19 @@ class TestEmrServerlessDeleteOperator:
         )
         with pytest.raises(TaskDeferred):
             operator.execute(None)
+
+    def test_template_fields(self):
+        operator = EmrServerlessDeleteApplicationOperator(
+            task_id=task_id, application_id=application_id_delete_operator
+        )
+
+        template_fields = list(operator.template_fields) + list(operator.template_fields_renderers.keys())
+
+        class_fields = operator.__dict__
+
+        missing_fields = [field for field in template_fields if field not in class_fields]
+
+        assert not missing_fields, f"Templated fields are not available {missing_fields}"
 
 
 class TestEmrServerlessStopOperator:
@@ -952,3 +1395,10 @@ class TestEmrServerlessStopOperator:
             operator.execute({})
 
         assert "no running jobs found with application ID test" in caplog.messages
+
+    def test_template_fields(self):
+        operator = EmrServerlessStopApplicationOperator(
+            task_id=task_id, application_id="test", deferrable=True, force_stop=True
+        )
+
+        validate_template_fields(operator)

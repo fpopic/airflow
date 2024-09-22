@@ -80,13 +80,11 @@ def _parse_sqlite_version(s: str) -> tuple[int, ...]:
 
 
 @overload
-def expand_env_var(env_var: None) -> None:
-    ...
+def expand_env_var(env_var: None) -> None: ...
 
 
 @overload
-def expand_env_var(env_var: str) -> str:
-    ...
+def expand_env_var(env_var: str) -> str: ...
 
 
 def expand_env_var(env_var: str | None) -> str | None:
@@ -259,12 +257,14 @@ class AirflowConfigParser(ConfigParser):
                 if not self.is_template(section, key) and "{" in value:
                     errors = True
                     log.error(
-                        f"The {section}.{key} value {value} read from string contains "
-                        "variable. This is not supported"
+                        "The %s.%s value %s read from string contains variable. This is not supported",
+                        section,
+                        key,
+                        value,
                     )
                 self._default_values.set(section, key, value)
             if errors:
-                raise Exception(
+                raise AirflowConfigException(
                     f"The string config passed as default contains variables. "
                     f"This is not supported. String config: {config_string}"
                 )
@@ -325,86 +325,10 @@ class AirflowConfigParser(ConfigParser):
     # A mapping of (new section, new option) -> (old section, old option, since_version).
     # When reading new option, the old option will be checked to see if it exists. If it does a
     # DeprecationWarning will be issued and the old option will be used instead
-    deprecated_options: dict[tuple[str, str], tuple[str, str, str]] = {
-        ("celery", "worker_precheck"): ("core", "worker_precheck", "2.0.0"),
-        ("logging", "interleave_timestamp_parser"): ("core", "interleave_timestamp_parser", "2.6.1"),
-        ("logging", "base_log_folder"): ("core", "base_log_folder", "2.0.0"),
-        ("logging", "remote_logging"): ("core", "remote_logging", "2.0.0"),
-        ("logging", "remote_log_conn_id"): ("core", "remote_log_conn_id", "2.0.0"),
-        ("logging", "remote_base_log_folder"): ("core", "remote_base_log_folder", "2.0.0"),
-        ("logging", "encrypt_s3_logs"): ("core", "encrypt_s3_logs", "2.0.0"),
-        ("logging", "logging_level"): ("core", "logging_level", "2.0.0"),
-        ("logging", "fab_logging_level"): ("core", "fab_logging_level", "2.0.0"),
-        ("logging", "logging_config_class"): ("core", "logging_config_class", "2.0.0"),
-        ("logging", "colored_console_log"): ("core", "colored_console_log", "2.0.0"),
-        ("logging", "colored_log_format"): ("core", "colored_log_format", "2.0.0"),
-        ("logging", "colored_formatter_class"): ("core", "colored_formatter_class", "2.0.0"),
-        ("logging", "log_format"): ("core", "log_format", "2.0.0"),
-        ("logging", "simple_log_format"): ("core", "simple_log_format", "2.0.0"),
-        ("logging", "task_log_prefix_template"): ("core", "task_log_prefix_template", "2.0.0"),
-        ("logging", "log_filename_template"): ("core", "log_filename_template", "2.0.0"),
-        ("logging", "log_processor_filename_template"): ("core", "log_processor_filename_template", "2.0.0"),
-        ("logging", "dag_processor_manager_log_location"): (
-            "core",
-            "dag_processor_manager_log_location",
-            "2.0.0",
-        ),
-        ("logging", "task_log_reader"): ("core", "task_log_reader", "2.0.0"),
-        ("metrics", "metrics_allow_list"): ("metrics", "statsd_allow_list", "2.6.0"),
-        ("metrics", "metrics_block_list"): ("metrics", "statsd_block_list", "2.6.0"),
-        ("metrics", "statsd_on"): ("scheduler", "statsd_on", "2.0.0"),
-        ("metrics", "statsd_host"): ("scheduler", "statsd_host", "2.0.0"),
-        ("metrics", "statsd_port"): ("scheduler", "statsd_port", "2.0.0"),
-        ("metrics", "statsd_prefix"): ("scheduler", "statsd_prefix", "2.0.0"),
-        ("metrics", "statsd_allow_list"): ("scheduler", "statsd_allow_list", "2.0.0"),
-        ("metrics", "stat_name_handler"): ("scheduler", "stat_name_handler", "2.0.0"),
-        ("metrics", "statsd_datadog_enabled"): ("scheduler", "statsd_datadog_enabled", "2.0.0"),
-        ("metrics", "statsd_datadog_tags"): ("scheduler", "statsd_datadog_tags", "2.0.0"),
-        ("metrics", "statsd_datadog_metrics_tags"): ("scheduler", "statsd_datadog_metrics_tags", "2.6.0"),
-        ("metrics", "statsd_custom_client_path"): ("scheduler", "statsd_custom_client_path", "2.0.0"),
-        ("scheduler", "parsing_processes"): ("scheduler", "max_threads", "1.10.14"),
-        ("scheduler", "scheduler_idle_sleep_time"): ("scheduler", "processor_poll_interval", "2.2.0"),
-        ("operators", "default_queue"): ("celery", "default_queue", "2.1.0"),
-        ("core", "hide_sensitive_var_conn_fields"): ("admin", "hide_sensitive_variable_fields", "2.1.0"),
-        ("core", "sensitive_var_conn_names"): ("admin", "sensitive_variable_fields", "2.1.0"),
-        ("core", "default_pool_task_slot_count"): ("core", "non_pooled_task_slot_count", "1.10.4"),
-        ("core", "max_active_tasks_per_dag"): ("core", "dag_concurrency", "2.2.0"),
-        ("logging", "worker_log_server_port"): ("celery", "worker_log_server_port", "2.2.0"),
-        ("api", "access_control_allow_origins"): ("api", "access_control_allow_origin", "2.2.0"),
-        ("api", "auth_backends"): ("api", "auth_backend", "2.3.0"),
-        ("database", "sql_alchemy_conn"): ("core", "sql_alchemy_conn", "2.3.0"),
-        ("database", "sql_engine_encoding"): ("core", "sql_engine_encoding", "2.3.0"),
-        ("database", "sql_engine_collation_for_ids"): ("core", "sql_engine_collation_for_ids", "2.3.0"),
-        ("database", "sql_alchemy_pool_enabled"): ("core", "sql_alchemy_pool_enabled", "2.3.0"),
-        ("database", "sql_alchemy_pool_size"): ("core", "sql_alchemy_pool_size", "2.3.0"),
-        ("database", "sql_alchemy_max_overflow"): ("core", "sql_alchemy_max_overflow", "2.3.0"),
-        ("database", "sql_alchemy_pool_recycle"): ("core", "sql_alchemy_pool_recycle", "2.3.0"),
-        ("database", "sql_alchemy_pool_pre_ping"): ("core", "sql_alchemy_pool_pre_ping", "2.3.0"),
-        ("database", "sql_alchemy_schema"): ("core", "sql_alchemy_schema", "2.3.0"),
-        ("database", "sql_alchemy_connect_args"): ("core", "sql_alchemy_connect_args", "2.3.0"),
-        ("database", "load_default_connections"): ("core", "load_default_connections", "2.3.0"),
-        ("database", "max_db_retries"): ("core", "max_db_retries", "2.3.0"),
-        ("scheduler", "parsing_cleanup_interval"): ("scheduler", "deactivate_stale_dags_interval", "2.5.0"),
-        ("scheduler", "task_queued_timeout_check_interval"): (
-            "kubernetes_executor",
-            "worker_pods_pending_timeout_check_interval",
-            "2.6.0",
-        ),
-    }
-
-    # A mapping of new configurations to a list of old configurations for when one configuration
-    # deprecates more than one other deprecation. The deprecation logic for these configurations
-    # is defined in SchedulerJobRunner.
-    many_to_one_deprecated_options: dict[tuple[str, str], list[tuple[str, str, str]]] = {
-        ("scheduler", "task_queued_timeout"): [
-            ("celery", "stalled_task_timeout", "2.6.0"),
-            ("celery", "task_adoption_timeout", "2.6.0"),
-            ("kubernetes_executor", "worker_pods_pending_timeout", "2.6.0"),
-        ]
-    }
+    deprecated_options: dict[tuple[str, str], tuple[str, str, str]] = {}
 
     # A mapping of new section -> (old section, since_version).
-    deprecated_sections: dict[str, tuple[str, str]] = {"kubernetes_executor": ("kubernetes", "2.5.0")}
+    deprecated_sections: dict[str, tuple[str, str]] = {}
 
     # Now build the inverse so we can go from old_section/old_key to new_section/new_key
     # if someone tries to retrieve it based on old_section/old_key
@@ -469,7 +393,7 @@ class AirflowConfigParser(ConfigParser):
         ("logging", "fab_logging_level"): _available_logging_levels,
         # celery_logging_level can be empty, which uses logging_level as fallback
         ("logging", "celery_logging_level"): [*_available_logging_levels, ""],
-        ("webserver", "analytical_tool"): ["google_analytics", "metarouter", "segment", ""],
+        ("webserver", "analytical_tool"): ["google_analytics", "metarouter", "segment", "matomo", ""],
     }
 
     upgraded_values: dict[tuple[str, str], str]
@@ -705,7 +629,8 @@ class AirflowConfigParser(ConfigParser):
                         file.write("\n")
 
     def restore_core_default_configuration(self) -> None:
-        """Restore default configuration for core Airflow.
+        """
+        Restore default configuration for core Airflow.
 
         It does not restore configuration for providers. If you want to restore configuration for
         providers, you need to call ``load_providers_configuration`` method.
@@ -763,6 +688,7 @@ class AirflowConfigParser(ConfigParser):
                 "in the running config, which is needed by the UI. Please update your config before "
                 "Apache Airflow 3.0.",
                 FutureWarning,
+                stacklevel=1,
             )
 
     def _upgrade_postgres_metastore_conn(self):
@@ -783,6 +709,7 @@ class AirflowConfigParser(ConfigParser):
                 "As of SQLAlchemy 1.4 (adopted in Airflow 2.3) this is no longer supported.  You must "
                 f"change to `{good_scheme}` before the next Airflow release.",
                 FutureWarning,
+                stacklevel=1,
             )
             self.upgraded_values[(section, key)] = old_value
             new_value = re2.sub("^" + re2.escape(f"{parsed.scheme}://"), f"{good_scheme}://", old_value)
@@ -805,7 +732,8 @@ class AirflowConfigParser(ConfigParser):
                     )
 
     def _validate_sqlite3_version(self):
-        """Validate SQLite version.
+        """
+        Validate SQLite version.
 
         Some features in storing rendered fields require SQLite >= 3.15.0.
         """
@@ -841,6 +769,7 @@ class AirflowConfigParser(ConfigParser):
             f"This value has been changed to {new_value!r} in the running config, but "
             f"please update your config before Apache Airflow {version}.",
             FutureWarning,
+            stacklevel=3,
         )
 
     def _env_var_name(self, section: str, key: str) -> str:
@@ -920,13 +849,17 @@ class AirflowConfigParser(ConfigParser):
             raise ValueError(f"The value {section}/{key} should be set!")
         return value
 
-    @overload  # type: ignore[override]
-    def get(self, section: str, key: str, fallback: str = ..., **kwargs) -> str:
-        ...
+    def get_mandatory_list_value(self, section: str, key: str, **kwargs) -> list[str]:
+        value = self.getlist(section, key, **kwargs)
+        if value is None:
+            raise ValueError(f"The value {section}/{key} should be set!")
+        return value
 
     @overload  # type: ignore[override]
-    def get(self, section: str, key: str, **kwargs) -> str | None:
-        ...
+    def get(self, section: str, key: str, fallback: str = ..., **kwargs) -> str: ...
+
+    @overload  # type: ignore[override]
+    def get(self, section: str, key: str, **kwargs) -> str | None: ...
 
     def get(  # type: ignore[override,misc]
         self,
@@ -1176,6 +1109,21 @@ class AirflowConfigParser(ConfigParser):
                 f'Current value: "{val}".'
             )
 
+    def getlist(self, section: str, key: str, delimiter=",", **kwargs):
+        val = self.get(section, key, **kwargs)
+        if val is None:
+            raise AirflowConfigException(
+                f"Failed to convert value None to list. "
+                f'Please check "{key}" key in "{section}" section is set.'
+            )
+        try:
+            return [item.strip() for item in val.split(delimiter)]
+        except Exception:
+            raise AirflowConfigException(
+                f'Failed to parse value to a list. Please check "{key}" key in "{section}" section. '
+                f'Current value: "{val}".'
+            )
+
     def getimport(self, section: str, key: str, **kwargs) -> Any:
         """
         Read options, import the full qualified name, and return the object.
@@ -1191,7 +1139,7 @@ class AirflowConfigParser(ConfigParser):
         try:
             return import_string(full_qualified_path)
         except ImportError as e:
-            log.error(e)
+            log.warning(e)
             raise AirflowConfigException(
                 f'The object could not be loaded. Please check "{key}" key in "{section}" section. '
                 f'Current value: "{full_qualified_path}".'
@@ -1871,7 +1819,8 @@ class AirflowConfigParser(ConfigParser):
                 stacklevel=4 + extra_stacklevel,
             )
 
-    def __getstate__(self):
+    def __getstate__(self) -> dict[str, Any]:
+        """Return the state of the object as a dictionary for pickling."""
         return {
             name: getattr(self, name)
             for name in [
@@ -1883,8 +1832,9 @@ class AirflowConfigParser(ConfigParser):
             ]
         }
 
-    def __setstate__(self, state):
-        self.__init__()
+    def __setstate__(self, state) -> None:
+        """Restore the state of the object from a dictionary representation."""
+        self.__init__()  # type: ignore[misc]
         config = state.pop("_sections")
         self.read_dict(config)
         self.__dict__.update(state)
@@ -1985,6 +1935,8 @@ def write_default_airflow_configuration_if_needed() -> AirflowConfigParser:
             FERNET_KEY = _generate_fernet_key()
             conf.remove_option("core", "fernet_key")
             conf.set("core", "fernet_key", FERNET_KEY)
+        pathlib.Path(airflow_config.__fspath__()).touch()
+        make_group_other_inaccessible(airflow_config.__fspath__())
         with open(airflow_config, "w") as file:
             conf.write(
                 file,
@@ -1994,7 +1946,6 @@ def write_default_airflow_configuration_if_needed() -> AirflowConfigParser:
                 extra_spacing=True,
                 only_defaults=True,
             )
-        make_group_other_inaccessible(airflow_config.__fspath__())
     return conf
 
 
@@ -2019,18 +1970,19 @@ def load_standard_airflow_configuration(airflow_config_parser: AirflowConfigPars
             "environment variable and remove the config file entry."
         )
         if "AIRFLOW_HOME" in os.environ:
-            warnings.warn(msg, category=DeprecationWarning)
+            warnings.warn(msg, category=DeprecationWarning, stacklevel=1)
         elif airflow_config_parser.get("core", "airflow_home") == AIRFLOW_HOME:
             warnings.warn(
                 "Specifying airflow_home in the config file is deprecated. As you "
                 "have left it at the default value you should remove the setting "
                 "from your airflow.cfg and suffer no change in behaviour.",
                 category=DeprecationWarning,
+                stacklevel=1,
             )
         else:
             # there
             AIRFLOW_HOME = airflow_config_parser.get("core", "airflow_home")  # type: ignore[assignment]
-            warnings.warn(msg, category=DeprecationWarning)
+            warnings.warn(msg, category=DeprecationWarning, stacklevel=1)
 
 
 def initialize_config() -> AirflowConfigParser:

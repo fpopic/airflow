@@ -23,6 +23,7 @@ from airflow.io.path import ObjectStoragePath
 from airflow.models import BaseOperator
 
 if TYPE_CHECKING:
+    from airflow.providers.openlineage.extractors import OperatorLineage
     from airflow.utils.context import Context
 
 
@@ -64,21 +65,42 @@ class FileTransferOperator(BaseOperator):
         self.overwrite = overwrite
 
     def execute(self, context: Context) -> None:
-        src: ObjectStoragePath
-        dst: ObjectStoragePath
-
-        if isinstance(self.src, str):
-            src = ObjectStoragePath(self.src, conn_id=self.source_conn_id)
-        else:
-            src = self.src
-
-        if isinstance(self.dst, str):
-            dst = ObjectStoragePath(self.dst, conn_id=self.dst_conn_id)
-        else:
-            dst = self.dst
+        src: ObjectStoragePath = self._get_path(self.src, self.source_conn_id)
+        dst: ObjectStoragePath = self._get_path(self.dst, self.dst_conn_id)
 
         if not self.overwrite:
             if dst.exists() and dst.is_file():
                 raise ValueError(f"Destination {dst} already exists")
 
         src.copy(dst)
+
+    def get_openlineage_facets_on_start(self) -> OperatorLineage:
+        from airflow.providers.common.compat.openlineage.facet import Dataset
+        from airflow.providers.openlineage.extractors import OperatorLineage
+
+        def _prepare_ol_dataset(path: ObjectStoragePath) -> Dataset:
+            if hasattr(path, "namespace"):
+                # namespace has been added in Airflow 2.9.0; #36410
+                return Dataset(namespace=path.namespace, name=path.key)
+            # manually recreating namespace
+            return Dataset(
+                namespace=f"{path.protocol}://{path.bucket}" if path.bucket else path.protocol,
+                name=path.key.lstrip(path.sep),
+            )
+
+        src: ObjectStoragePath = self._get_path(self.src, self.source_conn_id)
+        dst: ObjectStoragePath = self._get_path(self.dst, self.dst_conn_id)
+
+        input_dataset = _prepare_ol_dataset(src)
+        output_dataset = _prepare_ol_dataset(dst)
+
+        return OperatorLineage(
+            inputs=[input_dataset],
+            outputs=[output_dataset],
+        )
+
+    @staticmethod
+    def _get_path(path: str | ObjectStoragePath, conn_id: str | None) -> ObjectStoragePath:
+        if isinstance(path, str):
+            return ObjectStoragePath(path, conn_id=conn_id)
+        return path

@@ -16,6 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 """This module contains a Google Cloud Storage to BigQuery operator."""
+
 from __future__ import annotations
 
 import json
@@ -41,6 +42,7 @@ from airflow.providers.google.cloud.hooks.bigquery import BigQueryHook, BigQuery
 from airflow.providers.google.cloud.hooks.gcs import GCSHook
 from airflow.providers.google.cloud.links.bigquery import BigQueryTableLink
 from airflow.providers.google.cloud.triggers.bigquery import BigQueryInsertJobTrigger
+from airflow.providers.google.common.hooks.base_google import PROVIDE_PROJECT_ID
 from airflow.utils.helpers import merge_dicts
 
 if TYPE_CHECKING:
@@ -228,7 +230,7 @@ class GCSToBigQueryOperator(BaseOperator):
         job_id: str | None = None,
         force_rerun: bool = True,
         reattach_states: set[str] | None = None,
-        project_id: str | None = None,
+        project_id: str = PROVIDE_PROJECT_ID,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -435,6 +437,8 @@ class GCSToBigQueryOperator(BaseOperator):
                         conn_id=self.gcp_conn_id,
                         job_id=self.job_id,
                         project_id=self.project_id or self.hook.project_id,
+                        location=self.location or self.hook.location,
+                        impersonation_chain=self.impersonation_chain,
                     ),
                     method_name="execute_complete",
                 )
@@ -446,7 +450,7 @@ class GCSToBigQueryOperator(BaseOperator):
 
     def execute_complete(self, context: Context, event: dict[str, Any]):
         """
-        Callback for when the trigger fires - returns immediately.
+        Return immediately and relies on trigger to throw a success event. Callback for the trigger.
 
         Relies on trigger to throw an exception, otherwise it assumes execution was successful.
         """
@@ -457,6 +461,8 @@ class GCSToBigQueryOperator(BaseOperator):
             self.task_id,
             event["message"],
         )
+        # Save job_id as an attribute to be later used by listeners
+        self.job_id = event.get("job_id")
         return self._find_max_value_in_column()
 
     def _find_max_value_in_column(self):
@@ -466,7 +472,7 @@ class GCSToBigQueryOperator(BaseOperator):
             impersonation_chain=self.impersonation_chain,
         )
         if self.max_id_key:
-            self.log.info(f"Selecting the MAX value from BigQuery column '{self.max_id_key}'...")
+            self.log.info("Selecting the MAX value from BigQuery column %r...", self.max_id_key)
             select_command = (
                 f"SELECT MAX({self.max_id_key}) AS max_value "
                 f"FROM {self.destination_project_dataset_table}"
@@ -657,6 +663,7 @@ class GCSToBigQueryOperator(BaseOperator):
                 "nullMarker",
                 "quote",
                 "encoding",
+                "preserveAsciiControlCharacters",
             ],
             "DATASTORE_BACKUP": ["projectionFields"],
             "NEWLINE_DELIMITED_JSON": ["autodetect", "ignoreUnknownValues"],
@@ -695,7 +702,7 @@ class GCSToBigQueryOperator(BaseOperator):
         backward_compatibility_configs: dict | None = None,
     ) -> dict:
         """
-        Validates the given src_fmt_configs against a valid configuration for the source format.
+        Validate the given src_fmt_configs against a valid configuration for the source format.
 
         Adds the backward compatibility config to the src_fmt_configs.
 
@@ -711,7 +718,7 @@ class GCSToBigQueryOperator(BaseOperator):
             if k not in src_fmt_configs and k in valid_configs:
                 src_fmt_configs[k] = v
 
-        for k, v in src_fmt_configs.items():
+        for k in src_fmt_configs:
             if k not in valid_configs:
                 raise ValueError(f"{k} is not a valid src_fmt_configs for type {source_format}.")
 
@@ -736,35 +743,41 @@ class GCSToBigQueryOperator(BaseOperator):
             self.log.info("Skipping to cancel job: %s.%s", self.location, self.job_id)
 
     def get_openlineage_facets_on_complete(self, task_instance):
-        """Implementing on_complete as we will include final BQ job id."""
+        """Implement on_complete as we will include final BQ job id."""
         from pathlib import Path
 
-        from openlineage.client.facet import (
+        from airflow.providers.common.compat.openlineage.facet import (
+            Dataset,
             ExternalQueryRunFacet,
+            Identifier,
             SymlinksDatasetFacet,
-            SymlinksDatasetFacetIdentifiers,
         )
-        from openlineage.client.run import Dataset
-
-        from airflow.providers.google.cloud.hooks.gcs import _parse_gcs_url
-        from airflow.providers.google.cloud.utils.openlineage import (
+        from airflow.providers.google.cloud.openlineage.utils import (
             get_facets_from_bq_table,
             get_identity_column_lineage_facet,
         )
         from airflow.providers.openlineage.extractors import OperatorLineage
 
-        table_object = self.hook.get_client(self.hook.project_id).get_table(
-            self.destination_project_dataset_table
-        )
+        if not self.hook:
+            self.hook = BigQueryHook(
+                gcp_conn_id=self.gcp_conn_id,
+                location=self.location,
+                impersonation_chain=self.impersonation_chain,
+            )
+
+        project_id = self.project_id or self.hook.project_id
+        table_object = self.hook.get_client(project_id).get_table(self.destination_project_dataset_table)
 
         output_dataset_facets = get_facets_from_bq_table(table_object)
 
+        source_objects = (
+            self.source_objects if isinstance(self.source_objects, list) else [self.source_objects]
+        )
         input_dataset_facets = {
             "schema": output_dataset_facets["schema"],
         }
         input_datasets = []
-        for uri in sorted(self.source_uris):
-            bucket, blob = _parse_gcs_url(uri)
+        for blob in sorted(source_objects):
             additional_facets = {}
 
             if "*" in blob:
@@ -772,11 +785,7 @@ class GCSToBigQueryOperator(BaseOperator):
                 # but we create a symlink to the full object path with wildcard.
                 additional_facets = {
                     "symlink": SymlinksDatasetFacet(
-                        identifiers=[
-                            SymlinksDatasetFacetIdentifiers(
-                                namespace=f"gs://{bucket}", name=blob, type="file"
-                            )
-                        ]
+                        identifiers=[Identifier(namespace=f"gs://{self.bucket}", name=blob, type="file")]
                     ),
                 }
                 blob = Path(blob).parent.as_posix()
@@ -785,7 +794,7 @@ class GCSToBigQueryOperator(BaseOperator):
                     blob = "/"
 
             dataset = Dataset(
-                namespace=f"gs://{bucket}",
+                namespace=f"gs://{self.bucket}",
                 name=blob,
                 facets=merge_dicts(input_dataset_facets, additional_facets),
             )

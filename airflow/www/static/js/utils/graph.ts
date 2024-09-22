@@ -74,6 +74,7 @@ const formatEdge = (e: WebserverEdge, font: string, node?: DepNode) => ({
   targets: [e.targetId],
   isSetupTeardown: e.isSetupTeardown,
   parentNode: node?.id,
+  isSourceDataset: e.isSourceDataset,
   labels: e.label
     ? [
         {
@@ -132,7 +133,7 @@ const generateGraph = ({
         },
         label: value.label,
         layoutOptions: {
-          "elk.padding": "[top=60,left=10,bottom=10,right=10]",
+          "elk.padding": "[top=80,left=15,bottom=15,right=15]",
         },
         children: children.map(formatChildNode),
         edges: filteredEdges
@@ -153,6 +154,8 @@ const generateGraph = ({
           .map((e) => formatEdge(e, font, node)),
       };
     }
+    const isGate =
+      node.value.class === "or-gate" || node.value.class === "and-gate";
     const isJoinNode = id.includes("join_id");
     if (!isOpen && children?.length) {
       filteredEdges = filteredEdges
@@ -172,6 +175,20 @@ const generateGraph = ({
         }));
       closedGroupIds.push(id);
     }
+
+    const label = value.isMapped ? `${value.label} [100]` : value.label;
+    const labelLength = getTextWidth(label, font);
+    let width = labelLength > 200 ? labelLength : 200;
+    let height = 80;
+
+    if (isJoinNode) {
+      width = 10;
+      height = 10;
+    } else if (isGate) {
+      width = 30;
+      height = 30;
+    }
+
     return {
       id,
       label: value.label,
@@ -180,8 +197,8 @@ const generateGraph = ({
         isJoinNode,
         childCount,
       },
-      width: isJoinNode ? 10 : 200,
-      height: isJoinNode ? 10 : 70,
+      width,
+      height,
     };
   };
 
@@ -215,7 +232,7 @@ export const useGraphLayout = ({
   return useQuery(
     [
       "graphLayout",
-      !!nodes?.children,
+      nodes?.children?.length,
       openGroupIds,
       arrange,
       root,
